@@ -41,7 +41,7 @@ public struct Policy: Sendable {
         let data = try Data(contentsOf: url, options: [.mappedIfSafe])
         guard data.count >= 20 else { throw PolicyError.fileTooShort }
 
-        try data.withUnsafeBytes { raw in
+        let (dim, categories) = try data.withUnsafeBytes { raw -> (Int, [PolicyCategory]) in
             let base = raw.baseAddress!.assumingMemoryBound(to: UInt8.self)
             let magic = Data(bytes: base, count: 4)
             guard magic == Data([0x56, 0x47, 0x50, 0x31]) else { throw PolicyError.badMagic }
@@ -98,9 +98,11 @@ public struct Policy: Sendable {
                 ))
             }
 
-            self.embedDim = dim
-            self.categories = categories
+            return (dim, categories)
         }
+
+        self.embedDim = dim
+        self.categories = categories
     }
 
     /// Score an image embedding against every category and return the categories that fire.
