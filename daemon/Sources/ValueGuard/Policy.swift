@@ -16,12 +16,19 @@ public struct PolicyCategory: Sendable {
     public let negativeEmbedding: [Float]
 }
 
-public struct PolicyFlag: Sendable {
+/// Per-frame, per-category result. Returned for *every* category on every
+/// classified frame (not only those that exceed threshold) so calibration
+/// tooling sees the full score distribution.
+public struct CategoryScore: Sendable {
     public let category: PolicyCategory
     public let positiveScore: Float
     public let negativeScore: Float
-    public let timestamp: Date
+    public let firing: Bool
 }
+
+/// Back-compat alias. Existing callers can keep referring to PolicyFlag;
+/// new code should use CategoryScore.
+public typealias PolicyFlag = CategoryScore
 
 enum PolicyError: Error {
     case fileTooShort
@@ -109,44 +116,32 @@ public struct Policy: Sendable {
         self.categories = categories
     }
 
-    /// SigLIP-2 inference temperature. Equal to `exp(logit_scale)` where
-    /// `logit_scale = 4.7265` is the learned scalar in `google/siglip2-base-patch16-256`.
-    /// Without this scale, raw cosine sims (~0.05 to 0.30 typical) feed a softmax
-    /// that produces P-values squeezed into [0.45, 0.55] — abstract thresholds
-    /// like 0.55 become useless. With it, P-values spread to [0.05, 0.95] and
-    /// threshold semantics match what humans (and LLMs writing policies) expect.
+    /// Score an image embedding against every category. Returns one result per
+    /// category regardless of whether it fires — so calibration tooling sees
+    /// the full distribution.
     ///
-    /// If you swap to a different SigLIP-2 variant, update this. The bias term
-    /// (`logit_bias = -16.77`) cancels for softmax-over-pair and is not needed.
-    private static let siglip2BaseTemperature: Float = 112.9012
-
-    /// Score an image embedding against every category and return the categories that fire.
-    /// Uses softmax-over-pair with the learned temperature:
-    ///   P(unsafe) = exp(T · pos·x) / (exp(T · pos·x) + exp(T · neg·x))
-    public func evaluate(embedding: [Float]) -> [PolicyFlag] {
+    /// Firing semantics: `pos >= threshold` where both are raw SigLIP-2 cosine
+    /// similarity. Earlier versions used a temperature-scaled softmax over the
+    /// (pos, neg) pair; that produced near-saturated P-values for any positive
+    /// margin and made thresholds uncalibrated against the actual score scale.
+    /// Calibration data showed per-category noise floors of 0.01–0.07 raw and
+    /// matching SigLIP-2 literature reports true matches at 0.20–0.35, so raw
+    /// thresholds in [0.10, 0.25] are both meaningful and tunable.
+    public func evaluate(embedding: [Float]) -> [CategoryScore] {
         precondition(embedding.count == embedDim, "embedding dim mismatch")
-        let T = Self.siglip2BaseTemperature
-        var flags: [PolicyFlag] = []
-        let now = Date()
+        var scores: [CategoryScore] = []
+        scores.reserveCapacity(categories.count)
         for cat in categories {
             let pos = dot(cat.positiveEmbedding, embedding)
             let neg = dot(cat.negativeEmbedding, embedding)
-            let logitPos = pos * T
-            let logitNeg = neg * T
-            let maxv = max(logitPos, logitNeg)
-            let ep = expf(logitPos - maxv)
-            let en = expf(logitNeg - maxv)
-            let pUnsafe = ep / (ep + en)
-            if pUnsafe >= cat.threshold {
-                flags.append(PolicyFlag(
-                    category: cat,
-                    positiveScore: pos,
-                    negativeScore: neg,
-                    timestamp: now
-                ))
-            }
+            scores.append(CategoryScore(
+                category: cat,
+                positiveScore: pos,
+                negativeScore: neg,
+                firing: pos >= cat.threshold
+            ))
         }
-        return flags
+        return scores
     }
 }
 

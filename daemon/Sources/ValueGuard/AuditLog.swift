@@ -1,11 +1,15 @@
 import Foundation
 
 public actor AuditLog {
-    private let logURL: URL
+    private let auditURL: URL
+    private let scoresURL: URL?
     private let formatter: ISO8601DateFormatter
     private let includeWindowInfo: Bool
 
-    public init(includeWindowInfo: Bool = false) throws {
+    /// - Parameter scoresLogPath: if set, every per-frame per-category score is
+    ///   appended to this file as NDJSON. Used for calibration; off by default
+    ///   because the per-frame log can be large (~hundreds of records/sec).
+    public init(includeWindowInfo: Bool = false, scoresLogPath: String? = nil) throws {
         let supportDir = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -13,29 +17,70 @@ public actor AuditLog {
             create: true
         ).appendingPathComponent("ValueGuard", isDirectory: true)
         try FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
-        self.logURL = supportDir.appendingPathComponent("audit.log")
+        self.auditURL = supportDir.appendingPathComponent("audit.log")
+        if let p = scoresLogPath {
+            self.scoresURL = URL(fileURLWithPath: p)
+            try FileManager.default.createDirectory(
+                at: self.scoresURL!.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: self.scoresURL!.path) {
+                FileManager.default.createFile(atPath: self.scoresURL!.path, contents: nil)
+            }
+        } else {
+            self.scoresURL = nil
+        }
         self.includeWindowInfo = includeWindowInfo
 
         self.formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-        if !FileManager.default.fileExists(atPath: logURL.path) {
-            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        if !FileManager.default.fileExists(atPath: auditURL.path) {
+            FileManager.default.createFile(atPath: auditURL.path, contents: nil)
         }
 
-        FileHandle.standardError.write(Data("audit: writing to \(logURL.path)\n".utf8))
+        FileHandle.standardError.write(Data("audit: writing to \(auditURL.path)\n".utf8))
+        if let s = scoresURL {
+            FileHandle.standardError.write(Data("audit: scores log → \(s.path)\n".utf8))
+        }
     }
 
-    /// Record a per-frame classification hit.
-    public func record(_ flag: PolicyFlag, window: MonitoredWindow? = nil) throws {
+    /// Append a per-frame score record to the scores log (no-op if not enabled).
+    /// Written for every category on every classified frame so the calibration
+    /// tool sees the full distribution.
+    public func recordSample(
+        score: CategoryScore,
+        window: MonitoredWindow,
+        cached: Bool
+    ) throws {
+        guard let url = scoresURL else { return }
         var fields: [String] = [
-            "\"ts\":\"\(formatter.string(from: flag.timestamp))\"",
+            "\"ts\":\"\(formatter.string(from: Date()))\"",
+            "\"type\":\"sample\"",
+            "\"category\":\"\(score.category.id)\"",
+            "\"pos\":\(score.positiveScore)",
+            "\"neg\":\(score.negativeScore)",
+            "\"threshold\":\(score.category.threshold)",
+            "\"firing\":\(score.firing)",
+            "\"cached\":\(cached)",
+            "\"window_id\":\(window.windowID)",
+        ]
+        if includeWindowInfo {
+            fields.append("\"app\":\"\(jsonEscape(window.appName))\"")
+        }
+        try writeLine(fields, to: url)
+    }
+
+    /// Record a flag — a category that crossed its threshold on this frame.
+    public func record(_ score: CategoryScore, window: MonitoredWindow? = nil) throws {
+        var fields: [String] = [
+            "\"ts\":\"\(formatter.string(from: Date()))\"",
             "\"type\":\"flag\"",
-            "\"category\":\"\(flag.category.id)\"",
-            "\"pos\":\(flag.positiveScore)",
-            "\"neg\":\(flag.negativeScore)",
-            "\"threshold\":\(flag.category.threshold)",
-            "\"action\":\"\(actionName(flag.category.action))\"",
+            "\"category\":\"\(score.category.id)\"",
+            "\"pos\":\(score.positiveScore)",
+            "\"neg\":\(score.negativeScore)",
+            "\"threshold\":\(score.category.threshold)",
+            "\"action\":\"\(actionName(score.category.action))\"",
         ]
         if let window = window {
             fields.append("\"window_id\":\(window.windowID)")
@@ -43,7 +88,7 @@ public actor AuditLog {
                 fields.append("\"app\":\"\(jsonEscape(window.appName))\"")
             }
         }
-        try write(fields)
+        try writeLine(fields, to: auditURL)
     }
 
     /// Record a hysteresis transition for a window.
@@ -63,10 +108,9 @@ public actor AuditLog {
         if let categoryID = categoryID {
             fields.append("\"category\":\"\(categoryID)\"")
         }
-        try write(fields)
+        try writeLine(fields, to: auditURL)
     }
 
-    /// Record a window disappearing while its hysteresis was active.
     public func recordDisappeared(windowID: UInt32, appName: String) throws {
         var fields: [String] = [
             "\"ts\":\"\(formatter.string(from: Date()))\"",
@@ -76,7 +120,7 @@ public actor AuditLog {
         if includeWindowInfo {
             fields.append("\"app\":\"\(jsonEscape(appName))\"")
         }
-        try write(fields)
+        try writeLine(fields, to: auditURL)
     }
 
     public enum TransitionKind: String {
@@ -84,10 +128,10 @@ public actor AuditLog {
         case cleared
     }
 
-    private func write(_ fields: [String]) throws {
+    private func writeLine(_ fields: [String], to url: URL) throws {
         let line = "{\(fields.joined(separator: ","))}\n"
         if let data = line.data(using: .utf8) {
-            let handle = try FileHandle(forWritingTo: logURL)
+            let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
             try handle.seekToEnd()
             try handle.write(contentsOf: data)

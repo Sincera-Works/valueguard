@@ -27,6 +27,12 @@ Performance + debouncing:
   --hash-distance N         Hamming-distance threshold for "unchanged". Default 4.
   --hits N                  Hysteresis positive-hit count required to trigger. Default 3.
   --hysteresis-seconds S    Hysteresis time window. Default 10.
+
+Calibration:
+  --scores-log <path>       Write every per-frame per-category pos/neg score
+                            as NDJSON to this path. Off by default. Used by
+                            `valueguard calibrate` to fit per-category Normal
+                            distributions and suggest thresholds.
 """
 
 struct Args {
@@ -41,6 +47,7 @@ struct Args {
     var hashDistance: Int = 4
     var hits: Int = 3
     var hysteresisSeconds: Double = 10
+    var scoresLogPath: String?
 }
 
 func parseArgs() -> Args {
@@ -59,6 +66,7 @@ func parseArgs() -> Args {
         case "--hash-distance":       if let v = iter.next(), let n = Int(v) { args.hashDistance = n }
         case "--hits":                if let v = iter.next(), let n = Int(v) { args.hits = n }
         case "--hysteresis-seconds":  if let v = iter.next(), let n = Double(v) { args.hysteresisSeconds = n }
+        case "--scores-log":          args.scoresLogPath = iter.next()
         case "-h", "--help":          print(usage); exit(0)
         default:
             FileHandle.standardError.write(Data("error: unknown argument \(arg)\n".utf8))
@@ -105,6 +113,7 @@ do {
         logOnly: args.logOnly,
         filter: filter,
         includeWindowInfo: args.includeWindowInfo,
+        scoresLogPath: args.scoresLogPath,
         hashGateEnabled: args.hashGate,
         hashDistanceThreshold: args.hashDistance,
         hysteresisRequired: args.hits,

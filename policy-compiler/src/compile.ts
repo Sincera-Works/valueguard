@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import fs from "node:fs";
 import path from "node:path";
-import { Policy, DeploymentMode } from "./types.js";
+import { Policy, POLICY_JSON_SCHEMA, DeploymentMode } from "./types.js";
 import { POLICY_COMPILER_SYSTEM_PROMPT, userMessage } from "./prompt.js";
 
 const USAGE = `Usage: valueguard-compile <values.md> [personal|corporate]
@@ -42,25 +41,45 @@ const client = new Anthropic();
 console.error(`Compiling policy from ${valuesPath} (mode: ${mode})...`);
 console.error("Sending values statement to Sonnet. No screen data leaves this machine.");
 
-const response = await client.messages.parse({
+// Stream to allow a high max_tokens — adaptive thinking can consume a large
+// share of the budget on a structured-output task, and we need enough room
+// for thinking + the JSON payload (5-8 categories × 8-12 captions each side).
+const stream = client.messages.stream({
   model: "claude-sonnet-4-6",
-  max_tokens: 8192,
+  max_tokens: 32000,
   thinking: { type: "adaptive" },
-  output_config: { format: zodOutputFormat(Policy) },
+  output_config: {
+    format: { type: "json_schema", schema: POLICY_JSON_SCHEMA },
+  },
   system: POLICY_COMPILER_SYSTEM_PROMPT,
   messages: [{ role: "user", content: userMessage(values, mode) }],
 });
 
-if (!response.parsed_output) {
-  console.error("error: model returned no structured output");
-  console.error("stop_reason:", response.stop_reason);
-  if (response.stop_reason === "refusal" && response.stop_details) {
-    console.error("refusal details:", response.stop_details);
-  }
+const response = await stream.finalMessage();
+
+if (response.stop_reason === "refusal" && response.stop_details) {
+  console.error("error: model refused to generate output");
+  console.error("refusal details:", response.stop_details);
   process.exit(2);
 }
 
-const policy = response.parsed_output;
+const textBlock = response.content.find(
+  (b): b is Anthropic.TextBlock => b.type === "text"
+);
+if (!textBlock) {
+  console.error("error: model returned no text block");
+  console.error("stop_reason:", response.stop_reason);
+  process.exit(2);
+}
+
+let policy: Policy;
+try {
+  policy = JSON.parse(textBlock.text) as Policy;
+} catch (e) {
+  console.error("error: model output is not valid JSON:", e);
+  console.error("raw output:\n" + textBlock.text);
+  process.exit(2);
+}
 
 const outPath = valuesPath.endsWith(".md")
   ? valuesPath.replace(/\.md$/, ".policy.json")

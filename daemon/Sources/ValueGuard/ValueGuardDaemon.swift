@@ -23,7 +23,7 @@ public actor ValueGuardDaemon {
     /// access required so we don't bother making it Sendable.
     private struct WindowState {
         var lastHash: UInt64?
-        var lastFlags: [PolicyFlag] = []
+        var lastScores: [CategoryScore] = []
         var hysteresis: HysteresisState
     }
     private var windowStates: [UInt32: WindowState] = [:]
@@ -35,6 +35,7 @@ public actor ValueGuardDaemon {
         logOnly: Bool,
         filter: CaptureFilter,
         includeWindowInfo: Bool,
+        scoresLogPath: String? = nil,
         hashGateEnabled: Bool = true,
         hashDistanceThreshold: Int = 4,
         hysteresisRequired: Int = 3,
@@ -45,7 +46,7 @@ public actor ValueGuardDaemon {
         self.sampleRateHz = sampleRateHz
         self.logOnly = logOnly
         self.filter = filter
-        self.auditLog = try AuditLog(includeWindowInfo: includeWindowInfo)
+        self.auditLog = try AuditLog(includeWindowInfo: includeWindowInfo, scoresLogPath: scoresLogPath)
         self.classifier = try await Classifier(embeddingDim: policy.embedDim)
         self.capture = ScreenCapture()
         self.hashGateEnabled = hashGateEnabled
@@ -116,22 +117,29 @@ public actor ValueGuardDaemon {
             // Step 2: classify (or reuse cached classification if static).
             if !isStatic {
                 let embedding = try classifier.embed(frame.pixelBuffer)
-                state.lastFlags = policy.evaluate(embedding: embedding)
-                for flag in state.lastFlags {
-                    try await auditLog.record(flag, window: frame.window)
+                state.lastScores = policy.evaluate(embedding: embedding)
+            }
+
+            // Step 3: write per-category sample records (every category, every
+            // frame — what calibration needs) and flag records (only firing).
+            for score in state.lastScores {
+                try? await auditLog.recordSample(score: score, window: frame.window, cached: isStatic)
+                if score.firing {
+                    try? await auditLog.record(score, window: frame.window)
                 }
             }
 
-            // Step 3: feed the (cached-or-fresh) result into hysteresis.
-            if let topFlag = state.lastFlags.first {
+            // Step 4: feed firing results into hysteresis.
+            let firingScores = state.lastScores.filter { $0.firing }
+            if let topFiring = firingScores.first {
                 let transition = state.hysteresis.recordPositive()
                 if case .activated = transition {
-                    log.notice("hysteresis ACTIVATED window=\(wid) app=\(frame.window.appName, privacy: .public) category=\(topFlag.category.id, privacy: .public)")
+                    log.notice("hysteresis ACTIVATED window=\(wid) app=\(frame.window.appName, privacy: .public) category=\(topFiring.category.id, privacy: .public)")
                     try? await auditLog.recordTransition(
-                        kind: .activated, window: frame.window, categoryID: topFlag.category.id
+                        kind: .activated, window: frame.window, categoryID: topFiring.category.id
                     )
-                    if !logOnly, topFlag.category.action != .log {
-                        await dispatchAction(topFlag, window: frame.window)
+                    if !logOnly, topFiring.category.action != .log {
+                        await dispatchAction(topFiring, window: frame.window)
                     }
                 }
             } else {
