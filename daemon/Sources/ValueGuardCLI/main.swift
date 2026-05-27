@@ -46,7 +46,7 @@ guard let policyPath = args.policyPath else {
 }
 
 do {
-    let daemon = try ValueGuardDaemon(
+    let daemon = try await ValueGuardDaemon(
         policyPath: policyPath,
         sampleRateHz: args.rateHz,
         logOnly: args.logOnly

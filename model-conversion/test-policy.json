@@ -1,0 +1,60 @@
+{
+  "categories": [
+    {
+      "id": "text_heavy_screen",
+      "description": "Smoke-test category. Should fire on terminals, code editors, IDEs, and other text-heavy UI.",
+      "positive_captions": [
+        "a screenshot of a terminal with monospace text",
+        "a screenshot of a code editor",
+        "a screenshot of a programming IDE",
+        "a screenshot of source code on a dark background",
+        "a screenshot of a command line interface",
+        "a screenshot of a developer console with logs",
+        "a screenshot of documentation full of code samples",
+        "a screenshot of a text-heavy markdown document"
+      ],
+      "negative_captions": [
+        "a photograph of a beach at sunset",
+        "a photograph of a forest in autumn",
+        "a photograph of mountains and open sky",
+        "a photograph of a tropical landscape",
+        "a photograph of a city skyline at night",
+        "a photograph of flowers in a garden",
+        "a photograph of ocean waves",
+        "a photograph of a hiking trail through trees"
+      ],
+      "threshold": 0.50,
+      "threshold_note": "Smoke test. Should fire reliably on any terminal or code editor.",
+      "action": "log"
+    },
+    {
+      "id": "outdoor_photograph",
+      "description": "Smoke-test category. Should fire on outdoor nature photography and stay quiet on UI screenshots.",
+      "positive_captions": [
+        "a photograph of a beach at sunset",
+        "a photograph of a forest in autumn",
+        "a photograph of mountains and sky",
+        "a photograph of a green landscape",
+        "a photograph of an ocean shoreline",
+        "a photograph of wildflowers in a meadow",
+        "a photograph of a tropical island",
+        "a photograph of a snowy mountain peak"
+      ],
+      "negative_captions": [
+        "a screenshot of a terminal with monospace text",
+        "a screenshot of a code editor",
+        "a screenshot of a web browser",
+        "a screenshot of an application user interface",
+        "a screenshot of a chat or messaging window",
+        "a screenshot of a spreadsheet",
+        "a screenshot of source code",
+        "a screenshot of a settings panel"
+      ],
+      "threshold": 0.50,
+      "threshold_note": "Smoke test. Should stay quiet while looking at a code editor or terminal.",
+      "action": "log"
+    }
+  ],
+  "clarifications": [],
+  "calibration_note": "Hand-crafted smoke-test policy for end-to-end pipeline validation. Not a real values policy."
+}

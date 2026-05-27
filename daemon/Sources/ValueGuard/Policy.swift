@@ -46,11 +46,13 @@ public struct Policy: Sendable {
             let magic = Data(bytes: base, count: 4)
             guard magic == Data([0x56, 0x47, 0x50, 0x31]) else { throw PolicyError.badMagic }
 
-            let version = raw.load(fromByteOffset: 4, as: UInt32.self)
+            // id_utf8 is variable-length, so every field after it can be misaligned.
+            // Use loadUnaligned for scalars and memcpy for the float arrays.
+            let version = raw.loadUnaligned(fromByteOffset: 4, as: UInt32.self)
             guard version == 1 else { throw PolicyError.unsupportedVersion(version) }
 
-            let nCategories = Int(raw.load(fromByteOffset: 8, as: UInt32.self))
-            let dim = Int(raw.load(fromByteOffset: 12, as: UInt32.self))
+            let nCategories = Int(raw.loadUnaligned(fromByteOffset: 8, as: UInt32.self))
+            let dim = Int(raw.loadUnaligned(fromByteOffset: 12, as: UInt32.self))
             // reserved uint32 at offset 16
 
             var offset = 20
@@ -59,7 +61,7 @@ public struct Policy: Sendable {
 
             for _ in 0..<nCategories {
                 guard offset + 4 <= data.count else { throw PolicyError.truncatedCategory }
-                let idLen = Int(raw.load(fromByteOffset: offset, as: UInt32.self))
+                let idLen = Int(raw.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
                 offset += 4
 
                 guard offset + idLen <= data.count else { throw PolicyError.truncatedCategory }
@@ -68,9 +70,9 @@ public struct Policy: Sendable {
                 offset += idLen
 
                 guard offset + 8 <= data.count else { throw PolicyError.truncatedCategory }
-                let threshold = raw.load(fromByteOffset: offset, as: Float.self)
+                let threshold = raw.loadUnaligned(fromByteOffset: offset, as: Float.self)
                 offset += 4
-                let actionByte = raw.load(fromByteOffset: offset, as: UInt8.self)
+                let actionByte = raw.loadUnaligned(fromByteOffset: offset, as: UInt8.self)
                 guard let action = PolicyAction(rawValue: actionByte) else {
                     throw PolicyError.invalidAction(actionByte)
                 }
@@ -78,15 +80,17 @@ public struct Policy: Sendable {
 
                 let vecBytes = dim * MemoryLayout<Float>.size
                 guard offset + 2 * vecBytes <= data.count else { throw PolicyError.truncatedCategory }
-                let pos = Array(UnsafeBufferPointer(
-                    start: base.advanced(by: offset).withMemoryRebound(to: Float.self, capacity: dim) { $0 },
-                    count: dim
-                ))
+
+                var pos = [Float](repeating: 0, count: dim)
+                pos.withUnsafeMutableBytes { dst in
+                    _ = memcpy(dst.baseAddress!, base.advanced(by: offset), vecBytes)
+                }
                 offset += vecBytes
-                let neg = Array(UnsafeBufferPointer(
-                    start: base.advanced(by: offset).withMemoryRebound(to: Float.self, capacity: dim) { $0 },
-                    count: dim
-                ))
+
+                var neg = [Float](repeating: 0, count: dim)
+                neg.withUnsafeMutableBytes { dst in
+                    _ = memcpy(dst.baseAddress!, base.advanced(by: offset), vecBytes)
+                }
                 offset += vecBytes
 
                 categories.append(PolicyCategory(

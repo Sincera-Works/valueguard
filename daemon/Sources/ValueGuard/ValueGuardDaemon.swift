@@ -9,12 +9,13 @@ public actor ValueGuardDaemon {
     private let classifier: Classifier
     private let capture: ScreenCapture
 
-    public init(policyPath: String, sampleRateHz: Double, logOnly: Bool) throws {
-        self.policy = try Policy(loadingFrom: URL(fileURLWithPath: policyPath))
+    public init(policyPath: String, sampleRateHz: Double, logOnly: Bool) async throws {
+        let policy = try Policy(loadingFrom: URL(fileURLWithPath: policyPath))
+        self.policy = policy
         self.sampleRateHz = sampleRateHz
         self.logOnly = logOnly
         self.auditLog = try AuditLog()
-        self.classifier = try Classifier(embeddingDim: policy.embedDim)
+        self.classifier = try await Classifier(embeddingDim: policy.embedDim)
         self.capture = ScreenCapture()
     }
 

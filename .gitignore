@@ -35,6 +35,8 @@ daemon/Packages/
 daemon/*.xcodeproj/
 daemon/*.xcworkspace/
 daemon/DerivedData/
+daemon/Resources/
+daemon/dist/
 
 # Compiled policy artifacts
 *.policy.json

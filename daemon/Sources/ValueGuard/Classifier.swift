@@ -12,7 +12,7 @@ public final class Classifier: @unchecked Sendable {
     private let model: MLModel?
     private let embeddingDim: Int
 
-    public init(embeddingDim: Int) throws {
+    public init(embeddingDim: Int) async throws {
         self.embeddingDim = embeddingDim
 
         // Look for the bundled CoreML package. In SPM-built binaries we won't
@@ -25,9 +25,39 @@ public final class Classifier: @unchecked Sendable {
         ].compactMap { $0 }
 
         if let modelURL = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            // CoreML refuses to load .mlpackage directly — must be compiled to .mlmodelc first.
+            // Cache the compiled model to ~/Library/Caches/ValueGuard/ so repeat startups are
+            // instant. Bust the cache if the source .mlpackage is newer than the cached compile.
+            let cacheDir = try FileManager.default.url(
+                for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+            ).appendingPathComponent("ValueGuard", isDirectory: true)
+            try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            let cachedURL = cacheDir.appendingPathComponent("SigLIP2Vision.mlmodelc", isDirectory: true)
+
+            let needsCompile: Bool
+            if let cachedMtime = try? FileManager.default.attributesOfItem(atPath: cachedURL.path)[.modificationDate] as? Date,
+               let sourceMtime = try? FileManager.default.attributesOfItem(atPath: modelURL.path)[.modificationDate] as? Date {
+                needsCompile = sourceMtime > cachedMtime
+            } else {
+                needsCompile = true
+            }
+
+            let compiledURL: URL
+            if needsCompile {
+                FileHandle.standardError.write(Data("classifier: compiling \(modelURL.lastPathComponent) (one-time, ~5s)\n".utf8))
+                let tempURL = try await MLModel.compileModel(at: modelURL)
+                if FileManager.default.fileExists(atPath: cachedURL.path) {
+                    try FileManager.default.removeItem(at: cachedURL)
+                }
+                try FileManager.default.moveItem(at: tempURL, to: cachedURL)
+                compiledURL = cachedURL
+            } else {
+                compiledURL = cachedURL
+            }
+
             let config = MLModelConfiguration()
             config.computeUnits = .all
-            self.model = try MLModel(contentsOf: modelURL, configuration: config)
+            self.model = try MLModel(contentsOf: compiledURL, configuration: config)
             FileHandle.standardError.write(Data("classifier: loaded \(modelURL.lastPathComponent)\n".utf8))
         } else {
             self.model = nil
