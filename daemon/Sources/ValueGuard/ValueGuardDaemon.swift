@@ -27,6 +27,7 @@ public actor ValueGuardDaemon {
         var hysteresis: HysteresisState
     }
     private var windowStates: [UInt32: WindowState] = [:]
+    private var overlayProcesses: [UInt32: Process] = [:]
 
     public init(
         policyPath: String,
@@ -154,6 +155,7 @@ public actor ValueGuardDaemon {
                 log.notice("hysteresis DISAPPEARED window=\(wid)")
                 try? await auditLog.recordDisappeared(windowID: wid, appName: "")
             }
+            await terminateOverlay(for: wid)
             windowStates.removeValue(forKey: wid)
         }
     }
@@ -163,13 +165,66 @@ public actor ValueGuardDaemon {
         case .log:
             return
         case .blur:
-            log.notice("blur would frost window=\(window.windowID) app=\(window.appName, privacy: .public) frame=\(Int(window.frame.origin.x)),\(Int(window.frame.origin.y)) \(Int(window.frame.width))x\(Int(window.frame.height)) category=\(flag.category.id, privacy: .public)")
+            await showOverlay(for: window, category: flag.category.id)
         case .block:
             log.notice("block would terminate app=\(window.appName, privacy: .public) window=\(window.windowID) category=\(flag.category.id, privacy: .public)")
         }
     }
 
     private func dismissAction(window: MonitoredWindow) async {
-        log.notice("blur would dismiss window=\(window.windowID) app=\(window.appName, privacy: .public)")
+        await terminateOverlay(for: window.windowID)
+    }
+
+    /// Launch the blur_overlay binary as a child process positioned over this window.
+    private func showOverlay(for window: MonitoredWindow, category: String) async {
+        // If we already have an overlay running for this window, leave it.
+        if let existing = overlayProcesses[window.windowID], existing.isRunning {
+            return
+        }
+        guard let overlayURL = Self.locateOverlayBinary() else {
+            log.error("blur: blur_overlay binary not found near \(CommandLine.arguments[0], privacy: .public)")
+            return
+        }
+        let proc = Process()
+        proc.executableURL = overlayURL
+        proc.arguments = [
+            "show",
+            "--x", "\(Int(window.frame.origin.x))",
+            "--y", "\(Int(window.frame.origin.y))",
+            "--width", "\(Int(window.frame.width))",
+            "--height", "\(Int(window.frame.height))",
+            "--label", "\(window.appName) — \(category)",
+        ]
+        do {
+            try proc.run()
+            overlayProcesses[window.windowID] = proc
+            log.notice("blur SHOW window=\(window.windowID) app=\(window.appName, privacy: .public) pid=\(proc.processIdentifier)")
+        } catch {
+            log.error("blur: failed to launch overlay: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Send SIGTERM to the overlay process associated with this window, if any.
+    private func terminateOverlay(for windowID: UInt32) async {
+        if let proc = overlayProcesses.removeValue(forKey: windowID) {
+            if proc.isRunning {
+                proc.terminate()
+            }
+            log.notice("blur DISMISS window=\(windowID) pid=\(proc.processIdentifier)")
+        }
+    }
+
+    /// Find the blur_overlay binary next to the daemon binary. We're shipped
+    /// inside `.app/Contents/MacOS/` next to it, so a sibling lookup works.
+    /// Falls back to the SPM build dir for unbundled `swift run` use.
+    private static func locateOverlayBinary() -> URL? {
+        let exec = CommandLine.arguments[0]
+        let dir = URL(fileURLWithPath: exec).deletingLastPathComponent()
+        let candidates = [
+            dir.appendingPathComponent("blur_overlay"),
+            URL(fileURLWithPath: "\(dir.path)/blur_overlay"),
+            URL(fileURLWithPath: ".build/arm64-apple-macosx/debug/blur_overlay"),
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 }

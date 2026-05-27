@@ -7,7 +7,8 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "valueguard", targets: ["ValueGuardCLI"])
+        .executable(name: "valueguard", targets: ["ValueGuardCLI"]),
+        .executable(name: "blur_overlay", targets: ["ValueGuardOverlay"]),
     ],
     targets: [
         .target(
@@ -18,6 +19,10 @@ let package = Package(
             name: "ValueGuardCLI",
             dependencies: ["ValueGuard"],
             path: "Sources/ValueGuardCLI"
+        ),
+        .executableTarget(
+            name: "ValueGuardOverlay",
+            path: "Sources/ValueGuardOverlay"
         ),
     ]
 )

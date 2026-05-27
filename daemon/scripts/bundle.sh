@@ -29,6 +29,14 @@ mkdir -p "$APP_PATH/Contents/Resources"
 
 cp "$BIN_SRC" "$APP_PATH/Contents/MacOS/valueguard"
 
+# Also ship the blur_overlay sibling binary so the daemon can launch it.
+OVERLAY_SRC="$(swift build -c "$BUILD_CONFIG" --show-bin-path)/blur_overlay"
+if [ -x "$OVERLAY_SRC" ]; then
+    cp "$OVERLAY_SRC" "$APP_PATH/Contents/MacOS/blur_overlay"
+else
+    echo "warning: blur_overlay binary not found at $OVERLAY_SRC; blur actions will fail at runtime"
+fi
+
 # Copy CoreML model into the bundle if it's been placed alongside daemon/Resources
 if [ -d "$DAEMON_DIR/Resources" ]; then
     cp -R "$DAEMON_DIR/Resources/." "$APP_PATH/Contents/Resources/"
@@ -93,11 +101,28 @@ if [ -z "${SIGN_SHA:-}" ]; then
     [ -n "$SIGN_SHA" ] && SIGN_LABEL="ValueGuard Developer (self-signed)"
 fi
 
+# Sign every nested executable explicitly so subprocesses launched by the
+# daemon (blur_overlay) carry a valid signature. Then sign the bundle. We
+# avoid --deep because it's deprecated; explicit signing is the modern path.
+sign_one() {
+    local target="$1"
+    local id="$2"
+    if [ -n "${SIGN_SHA:-}" ]; then
+        codesign --force --sign "$SIGN_SHA" --identifier "$id" "$target"
+    else
+        codesign --force --sign - --identifier "$id" "$target"
+    fi
+}
+
+for binary in valueguard blur_overlay; do
+    binpath="$APP_PATH/Contents/MacOS/$binary"
+    [ -x "$binpath" ] && sign_one "$binpath" "$BUNDLE_ID"
+done
+sign_one "$APP_PATH" "$BUNDLE_ID"
+
 if [ -n "${SIGN_SHA:-}" ]; then
-    codesign --force --sign "$SIGN_SHA" --identifier "$BUNDLE_ID" "$APP_PATH"
     echo "Signed with: $SIGN_LABEL ($SIGN_SHA)"
 else
-    codesign --force --sign - --identifier "$BUNDLE_ID" "$APP_PATH"
     echo "Signed ad-hoc — no stable identity found."
     echo "Run scripts/setup-codesign.sh to make TCC grants persist across rebuilds."
 fi
