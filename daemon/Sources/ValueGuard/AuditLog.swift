@@ -26,9 +26,11 @@ public actor AuditLog {
         FileHandle.standardError.write(Data("audit: writing to \(logURL.path)\n".utf8))
     }
 
+    /// Record a per-frame classification hit.
     public func record(_ flag: PolicyFlag, window: MonitoredWindow? = nil) throws {
         var fields: [String] = [
             "\"ts\":\"\(formatter.string(from: flag.timestamp))\"",
+            "\"type\":\"flag\"",
             "\"category\":\"\(flag.category.id)\"",
             "\"pos\":\(flag.positiveScore)",
             "\"neg\":\(flag.negativeScore)",
@@ -36,13 +38,53 @@ public actor AuditLog {
             "\"action\":\"\(actionName(flag.category.action))\"",
         ]
         if let window = window {
-            // window_id is always safe — it's an anonymous integer that doesn't survive reboot.
             fields.append("\"window_id\":\(window.windowID)")
             if includeWindowInfo {
-                // App name is gated behind the opt-in flag because it can be PII-adjacent.
                 fields.append("\"app\":\"\(jsonEscape(window.appName))\"")
             }
         }
+        try write(fields)
+    }
+
+    /// Record a hysteresis transition for a window.
+    public func recordTransition(
+        kind: TransitionKind,
+        window: MonitoredWindow,
+        categoryID: String? = nil
+    ) throws {
+        var fields: [String] = [
+            "\"ts\":\"\(formatter.string(from: Date()))\"",
+            "\"type\":\"\(kind.rawValue)\"",
+            "\"window_id\":\(window.windowID)",
+        ]
+        if includeWindowInfo {
+            fields.append("\"app\":\"\(jsonEscape(window.appName))\"")
+        }
+        if let categoryID = categoryID {
+            fields.append("\"category\":\"\(categoryID)\"")
+        }
+        try write(fields)
+    }
+
+    /// Record a window disappearing while its hysteresis was active.
+    public func recordDisappeared(windowID: UInt32, appName: String) throws {
+        var fields: [String] = [
+            "\"ts\":\"\(formatter.string(from: Date()))\"",
+            "\"type\":\"disappeared\"",
+            "\"window_id\":\(windowID)",
+        ]
+        if includeWindowInfo {
+            fields.append("\"app\":\"\(jsonEscape(appName))\"")
+        }
+        try write(fields)
+    }
+
+    public enum TransitionKind: String {
+        case activated
+        case cleared
+    }
+
+    private func write(_ fields: [String]) throws {
         let line = "{\(fields.joined(separator: ","))}\n"
         if let data = line.data(using: .utf8) {
             let handle = try FileHandle(forWritingTo: logURL)

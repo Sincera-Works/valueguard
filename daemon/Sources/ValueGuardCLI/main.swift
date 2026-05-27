@@ -21,6 +21,12 @@ Audit log:
   --include-window-info     Include the foreground app name in each audit
                             entry. Off by default (window_id is logged either
                             way; the app name is gated as PII-adjacent).
+
+Performance + debouncing:
+  --no-hash-gate            Disable per-window hash skip. Default on.
+  --hash-distance N         Hamming-distance threshold for "unchanged". Default 4.
+  --hits N                  Hysteresis positive-hit count required to trigger. Default 3.
+  --hysteresis-seconds S    Hysteresis time window. Default 10.
 """
 
 struct Args {
@@ -31,6 +37,10 @@ struct Args {
     var extraGreenlistCSV: String?
     var allWindows: Bool = false
     var includeWindowInfo: Bool = false
+    var hashGate: Bool = true
+    var hashDistance: Int = 4
+    var hits: Int = 3
+    var hysteresisSeconds: Double = 10
 }
 
 func parseArgs() -> Args {
@@ -45,6 +55,10 @@ func parseArgs() -> Args {
         case "--greenlist":           args.extraGreenlistCSV = iter.next()
         case "--all-windows":         args.allWindows = true
         case "--include-window-info": args.includeWindowInfo = true
+        case "--no-hash-gate":        args.hashGate = false
+        case "--hash-distance":       if let v = iter.next(), let n = Int(v) { args.hashDistance = n }
+        case "--hits":                if let v = iter.next(), let n = Int(v) { args.hits = n }
+        case "--hysteresis-seconds":  if let v = iter.next(), let n = Double(v) { args.hysteresisSeconds = n }
         case "-h", "--help":          print(usage); exit(0)
         default:
             FileHandle.standardError.write(Data("error: unknown argument \(arg)\n".utf8))
@@ -90,7 +104,11 @@ do {
         sampleRateHz: args.rateHz,
         logOnly: args.logOnly,
         filter: filter,
-        includeWindowInfo: args.includeWindowInfo
+        includeWindowInfo: args.includeWindowInfo,
+        hashGateEnabled: args.hashGate,
+        hashDistanceThreshold: args.hashDistance,
+        hysteresisRequired: args.hits,
+        hysteresisSeconds: args.hysteresisSeconds
     )
     try await daemon.run()
 } catch {

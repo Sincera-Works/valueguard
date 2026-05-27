@@ -1,5 +1,8 @@
 import Foundation
 import CoreGraphics
+import os
+
+private let log = Logger(subsystem: "works.sincera.valueguard", category: "daemon")
 
 public actor ValueGuardDaemon {
     private let policy: Policy
@@ -10,12 +13,31 @@ public actor ValueGuardDaemon {
     private let classifier: Classifier
     private let capture: ScreenCapture
 
+    // Gating + debouncing config
+    private let hashGateEnabled: Bool
+    private let hashDistanceThreshold: Int
+    private let hysteresisRequired: Int
+    private let hysteresisSeconds: Double
+
+    /// All per-window mutable state. Lives on the actor; no external
+    /// access required so we don't bother making it Sendable.
+    private struct WindowState {
+        var lastHash: UInt64?
+        var lastFlags: [PolicyFlag] = []
+        var hysteresis: HysteresisState
+    }
+    private var windowStates: [UInt32: WindowState] = [:]
+
     public init(
         policyPath: String,
         sampleRateHz: Double,
         logOnly: Bool,
         filter: CaptureFilter,
-        includeWindowInfo: Bool
+        includeWindowInfo: Bool,
+        hashGateEnabled: Bool = true,
+        hashDistanceThreshold: Int = 4,
+        hysteresisRequired: Int = 3,
+        hysteresisSeconds: Double = 10
     ) async throws {
         let policy = try Policy(loadingFrom: URL(fileURLWithPath: policyPath))
         self.policy = policy
@@ -25,6 +47,10 @@ public actor ValueGuardDaemon {
         self.auditLog = try AuditLog(includeWindowInfo: includeWindowInfo)
         self.classifier = try await Classifier(embeddingDim: policy.embedDim)
         self.capture = ScreenCapture()
+        self.hashGateEnabled = hashGateEnabled
+        self.hashDistanceThreshold = hashDistanceThreshold
+        self.hysteresisRequired = hysteresisRequired
+        self.hysteresisSeconds = hysteresisSeconds
     }
 
     public func run() async throws {
@@ -41,6 +67,9 @@ public actor ValueGuardDaemon {
         }
         FileHandle.standardError.write(Data(
             "valueguard: monitorApps=\(filter.monitorApps.isEmpty ? "<all-except-greenlist>" : filter.monitorApps.joined(separator: ","))\n".utf8
+        ))
+        FileHandle.standardError.write(Data(
+            "valueguard: hash-gate=\(hashGateEnabled ? "on" : "off") (distance<\(hashDistanceThreshold)); hysteresis=\(hysteresisRequired)-of-\(hysteresisSeconds)s\n".utf8
         ))
 
         try await capture.requestPermission()
@@ -65,15 +94,67 @@ public actor ValueGuardDaemon {
 
     private func tick() async throws {
         let frames = try await capture.captureMonitoredWindows(filter: filter)
+        let currentWIDs = Set(frames.map { $0.window.windowID })
+
         for frame in frames {
-            let embedding = try classifier.embed(frame.pixelBuffer)
-            let flags = policy.evaluate(embedding: embedding)
-            for flag in flags {
-                try await auditLog.record(flag, window: frame.window)
-                if !logOnly, flag.category.action != .log {
-                    await dispatchAction(flag, window: frame.window)
+            let wid = frame.window.windowID
+            var state = windowStates[wid] ?? WindowState(
+                hysteresis: HysteresisState(required: hysteresisRequired, windowSeconds: hysteresisSeconds)
+            )
+
+            // Step 1: hash gate. Skip classification if content hasn't materially changed.
+            let hash = differenceHash(frame.pixelBuffer)
+            let isStatic: Bool
+            if hashGateEnabled, let last = state.lastHash {
+                isStatic = hammingDistance(last, hash) < hashDistanceThreshold
+            } else {
+                isStatic = false
+            }
+            state.lastHash = hash
+
+            // Step 2: classify (or reuse cached classification if static).
+            if !isStatic {
+                let embedding = try classifier.embed(frame.pixelBuffer)
+                state.lastFlags = policy.evaluate(embedding: embedding)
+                for flag in state.lastFlags {
+                    try await auditLog.record(flag, window: frame.window)
                 }
             }
+
+            // Step 3: feed the (cached-or-fresh) result into hysteresis.
+            if let topFlag = state.lastFlags.first {
+                let transition = state.hysteresis.recordPositive()
+                if case .activated = transition {
+                    log.notice("hysteresis ACTIVATED window=\(wid) app=\(frame.window.appName, privacy: .public) category=\(topFlag.category.id, privacy: .public)")
+                    try? await auditLog.recordTransition(
+                        kind: .activated, window: frame.window, categoryID: topFlag.category.id
+                    )
+                    if !logOnly, topFlag.category.action != .log {
+                        await dispatchAction(topFlag, window: frame.window)
+                    }
+                }
+            } else {
+                let transition = state.hysteresis.recordNegative()
+                if case .cleared = transition {
+                    log.notice("hysteresis CLEARED window=\(wid) app=\(frame.window.appName, privacy: .public)")
+                    try? await auditLog.recordTransition(kind: .cleared, window: frame.window)
+                    if !logOnly {
+                        await dismissAction(window: frame.window)
+                    }
+                }
+            }
+
+            windowStates[wid] = state
+        }
+
+        // Clean up state for windows that are no longer visible.
+        let goneWIDs = windowStates.keys.filter { !currentWIDs.contains($0) }
+        for wid in goneWIDs {
+            if windowStates[wid]?.hysteresis.active == true {
+                log.notice("hysteresis DISAPPEARED window=\(wid)")
+                try? await auditLog.recordDisappeared(windowID: wid, appName: "")
+            }
+            windowStates.removeValue(forKey: wid)
         }
     }
 
@@ -82,11 +163,13 @@ public actor ValueGuardDaemon {
         case .log:
             return
         case .blur:
-            await BlurOverlay.shared.show(reason: flag.category.id)
+            log.notice("blur would frost window=\(window.windowID) app=\(window.appName, privacy: .public) frame=\(Int(window.frame.origin.x)),\(Int(window.frame.origin.y)) \(Int(window.frame.width))x\(Int(window.frame.height)) category=\(flag.category.id, privacy: .public)")
         case .block:
-            FileHandle.standardError.write(Data(
-                "valueguard: block action not yet implemented (category=\(flag.category.id), window=\(window.windowID))\n".utf8
-            ))
+            log.notice("block would terminate app=\(window.appName, privacy: .public) window=\(window.windowID) category=\(flag.category.id, privacy: .public)")
         }
+    }
+
+    private func dismissAction(window: MonitoredWindow) async {
+        log.notice("blur would dismiss window=\(window.windowID) app=\(window.appName, privacy: .public)")
     }
 }
