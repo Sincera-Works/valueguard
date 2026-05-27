@@ -63,8 +63,44 @@ cat > "$APP_PATH/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-# Ad-hoc signature. Stable across rebuilds because the bundle ID is the TCC key.
-codesign --force --sign - --identifier "$BUNDLE_ID" "$APP_PATH"
+# Pick a stable code-signing identity so TCC's Designated Requirement is
+# constant across rebuilds. Preference order:
+#   1. $VALUEGUARD_CERT_NAME if set and present
+#   2. The first "Apple Development:" identity (real Apple dev account)
+#   3. The first "Apple Developer:" identity
+#   4. The first "ValueGuard Developer" identity (from setup-codesign.sh)
+#   5. Ad-hoc (TCC grants won't persist across rebuilds in this case)
+pick_identity() {
+    local pattern="$1"
+    security find-identity -p codesigning -v 2>/dev/null \
+        | awk -v p="$pattern" '$0 ~ p { print $2; exit }'
+}
+
+if [ -n "${VALUEGUARD_CERT_NAME:-}" ]; then
+    SIGN_SHA="$(pick_identity "\"${VALUEGUARD_CERT_NAME}\"")"
+    SIGN_LABEL="$VALUEGUARD_CERT_NAME"
+fi
+if [ -z "${SIGN_SHA:-}" ]; then
+    SIGN_SHA="$(pick_identity 'Apple Development:')"
+    [ -n "$SIGN_SHA" ] && SIGN_LABEL="Apple Development"
+fi
+if [ -z "${SIGN_SHA:-}" ]; then
+    SIGN_SHA="$(pick_identity 'Apple Developer:')"
+    [ -n "$SIGN_SHA" ] && SIGN_LABEL="Apple Developer"
+fi
+if [ -z "${SIGN_SHA:-}" ]; then
+    SIGN_SHA="$(pick_identity '"ValueGuard Developer"')"
+    [ -n "$SIGN_SHA" ] && SIGN_LABEL="ValueGuard Developer (self-signed)"
+fi
+
+if [ -n "${SIGN_SHA:-}" ]; then
+    codesign --force --sign "$SIGN_SHA" --identifier "$BUNDLE_ID" "$APP_PATH"
+    echo "Signed with: $SIGN_LABEL ($SIGN_SHA)"
+else
+    codesign --force --sign - --identifier "$BUNDLE_ID" "$APP_PATH"
+    echo "Signed ad-hoc — no stable identity found."
+    echo "Run scripts/setup-codesign.sh to make TCC grants persist across rebuilds."
+fi
 
 echo ""
 echo "Built $APP_PATH"
