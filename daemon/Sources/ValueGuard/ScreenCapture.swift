@@ -1,13 +1,89 @@
 import Foundation
 import CoreGraphics
 import CoreVideo
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
+
+/// Metadata about a captured window. Holds no SCK references — those are scoped
+/// to the capture call itself, because SCWindow references go stale as soon as
+/// the parent SCShareableContent is deallocated.
+public struct MonitoredWindow: Sendable {
+    /// Stable per-session window ID. Survives until the window is closed.
+    public let windowID: UInt32
+    /// Application name (`SCRunningApplication.applicationName`). May be empty in rare cases.
+    public let appName: String
+    /// Bundle identifier (`com.apple.Safari` etc). Useful for matching across language locales.
+    public let bundleID: String?
+    /// Window bounds in screen coordinates. Used by the overlay layer to position the blur.
+    public let frame: CGRect
+}
+
+/// A captured window: metadata + the pixel buffer at model input size.
+/// `@unchecked Sendable` because CVPixelBuffer isn't formally Sendable, but we
+/// treat it as immutable after capture.
+public struct CapturedFrame: @unchecked Sendable {
+    public let window: MonitoredWindow
+    public let pixelBuffer: CVPixelBuffer
+}
+
+/// Filtering policy applied to the window list before classification.
+public struct CaptureFilter: Sendable {
+    /// Apps that get classified. If `monitorApps` is empty, every window NOT in `greenlistApps`
+    /// is monitored. If non-empty, only windows whose app name matches an entry are monitored.
+    /// Matching is case-insensitive substring on `appName`.
+    public var monitorApps: [String]
+    /// Apps that are never classified, regardless of the monitor list. Match takes precedence.
+    public var greenlistApps: [String]
+
+    public init(monitorApps: [String] = [], greenlistApps: [String] = []) {
+        self.monitorApps = monitorApps
+        self.greenlistApps = greenlistApps
+    }
+
+    /// Default monitor list — browsers only, matching the Python reference spec.
+    public static let browsersOnly = CaptureFilter(
+        monitorApps: [
+            "Safari", "Google Chrome", "Firefox", "Chromium",
+            "Microsoft Edge", "Brave Browser", "Opera", "Arc"
+        ],
+        greenlistApps: defaultGreenlist
+    )
+
+    /// "All windows except the greenlist" — useful for smoke testing on a terminal.
+    public static let allExceptGreenlist = CaptureFilter(
+        monitorApps: [],
+        greenlistApps: defaultGreenlist
+    )
+
+    /// System chrome, terminals, IDEs — never classified.
+    public static let defaultGreenlist = [
+        "Dock", "Window Server", "Control Center", "NotificationCenter",
+        "Spotlight", "SystemUIServer", "loginwindow", "Finder",
+        "Terminal", "iTerm2", "Ghostty", "kitty", "Alacritty", "WezTerm",
+        "Xcode", "Visual Studio Code", "Cursor", "Sublime Text",
+        "Obsidian", "Notes",
+    ]
+
+    func shouldMonitor(appName: String) -> Bool {
+        let lower = appName.lowercased()
+        for green in greenlistApps where !green.isEmpty {
+            if lower.contains(green.lowercased()) { return false }
+        }
+        if monitorApps.isEmpty { return true }
+        for monitor in monitorApps where !monitor.isEmpty {
+            if lower.contains(monitor.lowercased()) { return true }
+        }
+        return false
+    }
+}
 
 public actor ScreenCapture {
-    private var stream: SCStream?
-    private var continuation: AsyncStream<CVPixelBuffer>.Continuation?
+    private let captureWidth: Int
+    private let captureHeight: Int
 
-    public init() {}
+    public init(captureSize: Int = 256) {
+        self.captureWidth = captureSize
+        self.captureHeight = captureSize
+    }
 
     public func requestPermission() async throws {
         do {
@@ -20,33 +96,58 @@ public actor ScreenCapture {
         }
     }
 
-    /// Capture a single frame from the main display.
-    /// This is the simplest possible implementation — for production we want
-    /// a persistent SCStream feeding a frame buffer the daemon polls. Good
-    /// enough for the v1 scaffold.
-    public func captureFrame() async throws -> CVPixelBuffer? {
+    /// Enumerate and capture every on-screen window that passes the filter.
+    ///
+    /// Uses `SCShareableContent` for enumeration (modern, gives us app names +
+    /// bundle IDs) and the deprecated `CGWindowListCreateImage` for the
+    /// per-window pixel grab. SCK's `SCContentFilter(desktopIndependentWindow:)`
+    /// raises an uncatchable ObjC exception on macOS 26 for ordinary
+    /// (non-floating) windows, so it's not usable for our purpose.
+    /// `CGWindowListCreateImage` is what the reference Python spec uses too.
+    public func captureMonitoredWindows(filter: CaptureFilter) async throws -> [CapturedFrame] {
         let content = try await SCShareableContent.current
-        guard let display = content.displays.first else { return nil }
+        var frames: [CapturedFrame] = []
+        for window in content.windows {
+            guard window.frame.width > 1, window.frame.height > 1 else { continue }
+            guard window.windowLayer == 0 else { continue }
+            guard window.isOnScreen else { continue }
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
-        let config = SCStreamConfiguration()
-        config.width = 256
-        config.height = 256
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-        config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.showsCursor = false
-        config.queueDepth = 2
+            let appName = window.owningApplication?.applicationName ?? ""
+            let bundleID = window.owningApplication?.bundleIdentifier
+            guard filter.shouldMonitor(appName: appName) else { continue }
 
-        let image = try await SCScreenshotManager.captureImage(
-            contentFilter: filter,
-            configuration: config
-        )
-        return Self.pixelBuffer(from: image)
+            let meta = MonitoredWindow(
+                windowID: window.windowID,
+                appName: appName,
+                bundleID: bundleID,
+                frame: window.frame
+            )
+
+            guard let cgImage = Self.captureWindowImage(windowID: window.windowID) else {
+                FileHandle.standardError.write(Data(
+                    "capture skip: window=\(meta.windowID) app=\(meta.appName) reason=null-cgimage\n".utf8
+                ))
+                continue
+            }
+
+            if let pb = Self.pixelBuffer(from: cgImage, targetWidth: captureWidth, targetHeight: captureHeight) {
+                frames.append(CapturedFrame(window: meta, pixelBuffer: pb))
+            }
+        }
+        return frames
     }
 
-    private static func pixelBuffer(from cgImage: CGImage) -> CVPixelBuffer? {
-        let width = cgImage.width
-        let height = cgImage.height
+    @available(macOS, deprecated: 14.0, message: "Intentional: SCK's per-window filter raises uncatchable ObjC exceptions on macOS 26+.")
+    private static func captureWindowImage(windowID: UInt32) -> CGImage? {
+        return CGWindowListCreateImage(
+            .null,
+            .optionIncludingWindow,
+            CGWindowID(windowID),
+            [.boundsIgnoreFraming, .nominalResolution]
+        )
+    }
+
+    private static func pixelBuffer(from cgImage: CGImage, targetWidth: Int, targetHeight: Int) -> CVPixelBuffer? {
         var pb: CVPixelBuffer?
         let attrs: [CFString: Any] = [
             kCVPixelBufferCGImageCompatibilityKey: true,
@@ -54,8 +155,8 @@ public actor ScreenCapture {
         ]
         let status = CVPixelBufferCreate(
             kCFAllocatorDefault,
-            width,
-            height,
+            targetWidth,
+            targetHeight,
             kCVPixelFormatType_32BGRA,
             attrs as CFDictionary,
             &pb
@@ -68,8 +169,8 @@ public actor ScreenCapture {
         let cs = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(
             data: CVPixelBufferGetBaseAddress(buffer),
-            width: width,
-            height: height,
+            width: targetWidth,
+            height: targetHeight,
             bitsPerComponent: 8,
             bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
             space: cs,
@@ -77,7 +178,7 @@ public actor ScreenCapture {
                 | CGBitmapInfo.byteOrder32Little.rawValue
         ) else { return nil }
 
-        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
         return buffer
     }
 }
