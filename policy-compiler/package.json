@@ -1,0 +1,27 @@
+{
+  "name": "@valueguard/policy-compiler",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Compile a plain-English values statement into a SigLIP-2-ready policy.json via the Anthropic API.",
+  "type": "module",
+  "bin": {
+    "valueguard-compile": "./dist/compile.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "compile": "tsx src/compile.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

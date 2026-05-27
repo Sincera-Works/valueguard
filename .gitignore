@@ -1,0 +1,52 @@
+.DS_Store
+*.log
+
+# Node / TypeScript (policy-compiler)
+node_modules/
+policy-compiler/dist/
+policy-compiler/*.tsbuildinfo
+.env
+.env.*
+
+# Python (model-conversion)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Model artifacts (large, regenerable)
+*.mlpackage/
+*.mlmodel
+*.onnx
+*.safetensors
+*.pt
+*.pth
+model-conversion/cache/
+model-conversion/output/
+
+# Swift / Xcode (daemon)
+daemon/.build/
+daemon/.swiftpm/
+daemon/Packages/
+daemon/*.xcodeproj/
+daemon/*.xcworkspace/
+daemon/DerivedData/
+
+# Compiled policy artifacts
+*.policy.json
+*.policy.bin
+
+# Local audit logs (must never be committed)
+audit/
+*.sqlite
+*.sqlite-journal
+*.db
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
