@@ -109,18 +109,33 @@ public struct Policy: Sendable {
         self.categories = categories
     }
 
+    /// SigLIP-2 inference temperature. Equal to `exp(logit_scale)` where
+    /// `logit_scale = 4.7265` is the learned scalar in `google/siglip2-base-patch16-256`.
+    /// Without this scale, raw cosine sims (~0.05 to 0.30 typical) feed a softmax
+    /// that produces P-values squeezed into [0.45, 0.55] — abstract thresholds
+    /// like 0.55 become useless. With it, P-values spread to [0.05, 0.95] and
+    /// threshold semantics match what humans (and LLMs writing policies) expect.
+    ///
+    /// If you swap to a different SigLIP-2 variant, update this. The bias term
+    /// (`logit_bias = -16.77`) cancels for softmax-over-pair and is not needed.
+    private static let siglip2BaseTemperature: Float = 112.9012
+
     /// Score an image embedding against every category and return the categories that fire.
-    /// Uses softmax-over-pair: P(unsafe) = exp(pos·x) / (exp(pos·x) + exp(neg·x)).
+    /// Uses softmax-over-pair with the learned temperature:
+    ///   P(unsafe) = exp(T · pos·x) / (exp(T · pos·x) + exp(T · neg·x))
     public func evaluate(embedding: [Float]) -> [PolicyFlag] {
         precondition(embedding.count == embedDim, "embedding dim mismatch")
+        let T = Self.siglip2BaseTemperature
         var flags: [PolicyFlag] = []
         let now = Date()
         for cat in categories {
             let pos = dot(cat.positiveEmbedding, embedding)
             let neg = dot(cat.negativeEmbedding, embedding)
-            let maxv = max(pos, neg)
-            let ep = expf(pos - maxv)
-            let en = expf(neg - maxv)
+            let logitPos = pos * T
+            let logitNeg = neg * T
+            let maxv = max(logitPos, logitNeg)
+            let ep = expf(logitPos - maxv)
+            let en = expf(logitNeg - maxv)
             let pUnsafe = ep / (ep + en)
             if pUnsafe >= cat.threshold {
                 flags.append(PolicyFlag(

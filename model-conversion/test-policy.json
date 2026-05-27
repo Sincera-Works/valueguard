@@ -23,7 +23,7 @@
         "a photograph of ocean waves",
         "a photograph of a hiking trail through trees"
       ],
-      "threshold": 0.50,
+      "threshold": 0.55,
       "threshold_note": "Smoke test. Should fire reliably on any terminal or code editor.",
       "action": "log"
     },
@@ -50,7 +50,7 @@
         "a screenshot of source code",
         "a screenshot of a settings panel"
       ],
-      "threshold": 0.50,
+      "threshold": 0.55,
       "threshold_note": "Smoke test. Should stay quiet while looking at a code editor or terminal.",
       "action": "log"
     }
