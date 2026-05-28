@@ -1,5 +1,5 @@
 import Foundation
-import ValueGuard
+import ValueGuardCore
 
 let usage = """
 Usage: valueguard --policy <policy.bin> [options]
