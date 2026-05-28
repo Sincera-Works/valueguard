@@ -1,0 +1,47 @@
+name: Claude Code Review
+
+# Automatic Claude review on every pull request.
+#
+# Auth: the Claude GitHub App (OAuth). Install the app on this repo and add a
+# CLAUDE_CODE_OAUTH_TOKEN repository secret (generate with `claude setup-token`).
+# Until that secret exists this job fails fast — it is intentionally NOT a
+# required status check, so it can't block merges while being wired up.
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Review this pull request as a senior Swift / macOS engineer working
+            on ValueGuard (on-device content filtering; SwiftUI menubar app +
+            an SPM daemon library).
+
+            Prioritise, in order:
+              1. Correctness bugs and logic errors.
+              2. Concurrency / actor-isolation hazards (this codebase is
+                 @MainActor and Swift-actor heavy).
+              3. Resource leaks, retain cycles, and lifecycle bugs.
+              4. Incorrect Apple / Carbon / CoreGraphics API usage.
+
+            Verify every claim against the actual diff before raising it; do
+            not nitpick formatting or style. Leave concise inline review
+            comments on the specific lines, plus one short summary comment. If
+            you find nothing substantive, say so briefly.
+          claude_args: "--max-turns 30"
