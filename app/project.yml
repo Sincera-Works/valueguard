@@ -1,0 +1,60 @@
+name: ValueGuard
+options:
+  bundleIdPrefix: works.sincera.valueguard
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    PRODUCT_NAME: ValueGuard
+    PRODUCT_BUNDLE_IDENTIFIER: works.sincera.valueguard.app
+    INFOPLIST_FILE: Resources/Info.plist
+    CODE_SIGN_ENTITLEMENTS: Resources/ValueGuard.entitlements
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    DEAD_CODE_STRIPPING: YES
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+
+packages:
+  ValueGuard:
+    path: ../daemon
+  swift-transformers:
+    url: https://github.com/huggingface/swift-transformers
+    from: "0.1.13"
+
+targets:
+  ValueGuardApp:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+        createIntermediateGroups: true
+      - path: Resources/tokenizer.json
+        buildPhase: resources
+      - path: Resources/tokenizer_config.json
+        buildPhase: resources
+      - path: Resources/special_tokens_map.json
+        buildPhase: resources
+      - path: ../daemon/Resources/SigLIP2Vision.mlpackage
+        buildPhase: resources
+        type: folder
+    dependencies:
+      - package: ValueGuard
+        product: ValueGuardCore
+      - package: swift-transformers
+        product: Transformers
+    info:
+      path: Resources/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleName: ValueGuard
+        CFBundleDisplayName: ValueGuard
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSScreenCaptureUsageDescription: ValueGuard analyzes on-screen content locally to filter what you have asked to filter. No frame data leaves your machine.
+        NSHumanReadableCopyright: "© 2026 Sincera Works"
+        LSMinimumSystemVersion: "14.0"
