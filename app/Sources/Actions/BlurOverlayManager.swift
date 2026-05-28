@@ -3,8 +3,9 @@ import SwiftUI
 import QuartzCore
 
 /// Owns one blur NSWindow per offending window. Each blur is permanently
-/// at `.statusBar` level (above all `.normal` windows so click-raises
-/// can't lift the source above it — no flicker), but the blur's content
+/// at `.screenSaver` level (above all `.normal` windows — and the menu
+/// bar / status items — so nothing the user can click can lift the source
+/// above it, no flicker), but the blur's content
 /// is shaped each tick by a `CAShapeLayer` mask computed from the live
 /// window stacking order.
 ///
@@ -21,7 +22,7 @@ import QuartzCore
 ///     blur only covers what the user can actually see
 ///   - Fully occluded → mask is empty → blur draws nothing
 ///   - User clicks source → source raises within `.normal` → still
-///     below `.statusBar` → no flicker
+///     below `.screenSaver` → no flicker
 ///   - User clicks Planning Center → Planning Center comes to the top
 ///     of `.normal` → next mask tick subtracts it from the source's
 ///     visible region → blur retracts from that area, Planning Center
@@ -275,7 +276,7 @@ final class BlurOverlayManager {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
-        window.level = .statusBar
+        window.level = .screenSaver
         window.isReleasedWhenClosed = false
         window.ignoresMouseEvents = true
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]

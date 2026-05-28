@@ -6,12 +6,19 @@ final class MenubarController: NSObject {
     private let host: DaemonHost
     private let openOnboarding: () -> Void
     private let openSettings: () -> Void
+    private let onEmergencyDismiss: () -> Void
     private var pauseItem: NSMenuItem?
 
-    init(host: DaemonHost, openOnboarding: @escaping () -> Void, openSettings: @escaping () -> Void) {
+    init(
+        host: DaemonHost,
+        openOnboarding: @escaping () -> Void,
+        openSettings: @escaping () -> Void,
+        onEmergencyDismiss: @escaping () -> Void
+    ) {
         self.host = host
         self.openOnboarding = openOnboarding
         self.openSettings = openSettings
+        self.onEmergencyDismiss = onEmergencyDismiss
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         apply(status: host.status)
@@ -50,6 +57,14 @@ final class MenubarController: NSObject {
         pauseItem = pause
         menu.addItem(pause)
 
+        // Mirrors the system-wide EmergencyHotkey; the key equivalent here is
+        // for discoverability (the Carbon hotkey is what fires when another
+        // app is frontmost).
+        let dismiss = NSMenuItem(title: "Dismiss blur now", action: #selector(emergencyDismiss), keyEquivalent: "d")
+        dismiss.keyEquivalentModifierMask = [.control, .option, .command]
+        dismiss.target = self
+        menu.addItem(dismiss)
+
         let openLog = NSMenuItem(title: "Open audit log (flags)", action: #selector(openAuditLog), keyEquivalent: "")
         openLog.target = self
         menu.addItem(openLog)
@@ -81,6 +96,10 @@ final class MenubarController: NSObject {
             host.start()
         }
         apply(status: host.status)
+    }
+
+    @objc private func emergencyDismiss() {
+        onEmergencyDismiss()
     }
 
     @objc private func openAuditLog() {

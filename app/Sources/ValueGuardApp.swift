@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var actionOverrides: ActionOverrides?
     private var auditTailer: AuditLogTailer?
     private var actionDispatcher: ActionDispatcher?
+    private var emergencyHotkey: EmergencyHotkey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -42,12 +43,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onReopenOnboarding: { [weak onboarding] in onboarding?.present() }
         )
         let auditTailer = AuditLogTailer()
-        let actionDispatcher = ActionDispatcher(tailer: auditTailer, overrides: actionOverrides)
+        let actionDispatcher = ActionDispatcher(
+            tailer: auditTailer,
+            overrides: actionOverrides,
+            autoPauseEnabled: { [weak settings] in settings?.autoPauseInSensitiveContexts ?? true }
+        )
         actionDispatcher.start()
+        let emergencyHotkey = EmergencyHotkey { [weak actionDispatcher] in
+            actionDispatcher?.emergencyDismiss()
+        }
+        emergencyHotkey.register()
         let menubar = MenubarController(
             host: host,
             openOnboarding: { [weak onboarding] in onboarding?.present() },
-            openSettings: { [weak settingsWindow] in settingsWindow?.present() }
+            openSettings: { [weak settingsWindow] in settingsWindow?.present() },
+            onEmergencyDismiss: { [weak actionDispatcher] in actionDispatcher?.emergencyDismiss() }
         )
         host.onStatusChange = { [weak menubar] status in
             Task { @MainActor in menubar?.apply(status: status) }
@@ -83,5 +93,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.actionOverrides = actionOverrides
         self.auditTailer = auditTailer
         self.actionDispatcher = actionDispatcher
+        self.emergencyHotkey = emergencyHotkey
     }
 }

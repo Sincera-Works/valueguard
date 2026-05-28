@@ -26,6 +26,8 @@ struct SettingsView: View {
                 .help("Recommended for the first week of use. Reviews logged flags before unlocking blur/block.")
             Toggle("Write per-frame scores log (calibration)", isOn: $settings.writeScoresLog)
                 .help("scores.log gets one NDJSON line per category per sampled frame. Lets you see what the model thinks of every frame, not just the ones that fire.")
+            Toggle("Pause actions during calls, screen shares & slideshows", isOn: $settings.autoPauseInSensitiveContexts)
+                .help("When a conferencing app (Zoom, Teams, Webex, Meet desktop, OBS, QuickTime) is frontmost, or Keynote/PowerPoint is presenting full-screen, blur/notify/block are suppressed so they aren't broadcast. Logging continues. Takes effect immediately — no restart needed.")
             Picker("Sample rate", selection: $settings.sampleRateHz) {
                 Text("0.5 Hz").tag(0.5)
                 Text("1 Hz (default)").tag(1.0)
