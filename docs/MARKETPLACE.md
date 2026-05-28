@@ -59,7 +59,7 @@ acme-strict-personal-1.4.0.vgconfig    (tar.gz, content-addressable)
 ├── manifest.json            required, UTF-8, canonical JSON
 ├── policy.bin               required, VGP1 binary, byte-for-byte
 ├── policy.json              required, human-readable source policy
-├── calibration.json         required, machine-readable evidence
+├── calibration.json         required, machine-readable evidence (new schema; see §4)
 ├── README.md                optional, author prose
 ├── CHANGELOG.md             optional, author prose
 ├── LICENSE                  optional but strongly recommended
@@ -111,8 +111,8 @@ schema is versioned independently of the policy.bin format.
   "policy_json_hash": "sha256:1f88...",
   "calibration_hash": "sha256:dba1...",
   "thresholds": [
-    { "category_id": "explicit_sexual", "tau": 0.184, "action": "blur" },
-    { "category_id": "graphic_violence", "tau": 0.213, "action": "log" }
+    { "id": "explicit_sexual", "threshold": 0.184, "action": "blur" },
+    { "id": "graphic_violence", "threshold": 0.213, "action": "log" }
   ],
   "calibration_method": "label_free_normal",
   "calibration_summary": {
@@ -123,11 +123,11 @@ schema is versioned independently of the policy.bin format.
     "conformal_alpha": 0.05,
     "per_category": [
       {
-        "category_id": "explicit_sexual",
+        "id": "explicit_sexual",
         "n_samples": 712,
         "mu": 0.062,
         "sigma": 0.041,
-        "tau": 0.184,
+        "threshold": 0.184,
         "expected_fpr": 0.0012,
         "expected_fnr_at_match_score_0_28": 0.04,
         "source": "wikimedia_commons"
@@ -175,7 +175,7 @@ Field-by-field rules (the validator is `vg verify`):
 | policy_hash | string | yes | `sha256:<hex>` of the bundled `policy.bin` |
 | policy_json_hash | string | yes | `sha256:<hex>` of `policy.json` |
 | calibration_hash | string | yes | `sha256:<hex>` of `calibration.json` |
-| thresholds[].tau | float | yes | in `[0.0, 1.0]`, matches policy.bin byte-for-byte |
+| thresholds[].threshold | float | yes | in `[0.0, 1.0]`, matches policy.bin byte-for-byte |
 | thresholds[].action | enum | yes | `log` \| `blur` \| `block` |
 | calibration_method | enum | yes | `label_free_normal` \| `gaussian_mixture` \| `conformal` \| `none` |
 | compatibility.min_daemon_version | string | yes | SemVer of `valueguardd` |
@@ -406,8 +406,8 @@ license MIT, MIT
 model    siglip2-base-patch16-256 @ 9b3f...
 calibration  label_free_normal, n=4812, prior=0.001
 categories
-  explicit_sexual    tau=0.184  action=blur
-  graphic_violence   tau=0.213  action=log
+  explicit_sexual    threshold=0.184  action=blur
+  graphic_violence   threshold=0.213  action=log
   ...
 
 # Pin and update
@@ -526,6 +526,15 @@ Configs ship with pre-calibrated thresholds. The user's local environment
 is unlikely to match the author's exactly, so the app encourages
 re-calibration:
 
+> **Note on `calibration.json`.** No tool in the repo writes this file
+> today. `model-conversion/calibrate.py` emits a markdown report plus an
+> updated `policy.json`; the new Bayesian + conformal calibrator in
+> `app/Sources/Calibration/` works in-app and patches `policy.bin`
+> directly. Adopting `.vgconfig` bundling means specifying and
+> implementing the `calibration.json` schema (fields enumerated in §2's
+> manifest example are the starting proposal) and writing it from
+> whichever calibrator owns the publish path.
+
 - The `Re-calibrate` button runs the existing label-free flow from
   `model-conversion/calibrate.py` (rewired to a Swift port for the app)
   against the user's own captured scores log.
@@ -540,15 +549,18 @@ re-calibration:
 
 ### Hot reload vs restart
 
-The daemon uses memory-mapped `policy.bin` (`Policy.swift:48`). Atomic
-symlink swap on the active config plus a `SIGUSR1` to the daemon
-triggers a re-load. The daemon's actor model in
-`daemon/Sources/ValueGuard/ValueGuardDaemon.swift:7` reads the policy
-once at init; refactor: lift policy loading into a swappable holder and
-react to `SIGUSR1` by re-reading and replacing the held `Policy`
-instance. Per-window hysteresis state stays intact across swaps; only
-the scoring vectors are replaced. This avoids the awful "filtering
-stopped for 12 seconds while the daemon restarted" experience.
+The daemon loads `policy.bin` via `Data(contentsOf:options:[.mappedIfSafe])`
+(`Policy.swift:48`), which mmaps when the file system + size make it
+worthwhile and otherwise falls back to a normal read. Either way the
+loaded `Policy` is a `let` on the actor (`ValueGuardDaemon.swift:8`),
+initialized once at `init` (line 44–45). Hot reload therefore requires
+real work the daemon doesn't do today: lift the policy from `let` to a
+swappable holder, install a `SIGUSR1` handler (none exists in the
+codebase), and on signal re-read the active symlink target and replace
+the held instance. Per-window hysteresis state stays intact across
+swaps; only the scoring vectors are replaced. Atomic symlink swap on
+the active config plus the SIGUSR1 then avoids the "filtering stopped
+for 12 seconds while the daemon restarted" experience.
 
 ---
 
