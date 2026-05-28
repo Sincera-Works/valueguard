@@ -9,15 +9,16 @@ let package = Package(
     products: [
         .executable(name: "valueguard", targets: ["ValueGuardCLI"]),
         .executable(name: "blur_overlay", targets: ["ValueGuardOverlay"]),
+        .library(name: "ValueGuardCore", targets: ["ValueGuardCore"]),
     ],
     targets: [
         .target(
-            name: "ValueGuard",
+            name: "ValueGuardCore",
             path: "Sources/ValueGuard"
         ),
         .executableTarget(
             name: "ValueGuardCLI",
-            dependencies: ["ValueGuard"],
+            dependencies: ["ValueGuardCore"],
             path: "Sources/ValueGuardCLI"
         ),
         .executableTarget(
