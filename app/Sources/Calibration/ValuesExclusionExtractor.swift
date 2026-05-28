@@ -15,10 +15,18 @@ enum ValuesExclusionExtractor {
                 .replacingOccurrences(of: "^[-*\\s]+", with: "", options: .regularExpression)
             // Look for the most common phrasings the model emits in policy
             // discussions and the user might write naturally.
+            //
+            // Only structural cues — "I am okay with X" and "okay: X" —
+            // are reliable. An earlier pattern that fired on any line
+            // starting with bare nouns like "cats" or "including"
+            // over-matched catastrophically ("Cats are sacred" → captured
+            // "are sacred" as a search query), silently biasing the
+            // calibrator's negative corpus. If users want to declare
+            // exclusions ergonomically, they should use the structural
+            // forms; we don't try to mind-read otherwise.
             let patterns = [
                 "(?i)^I am (?:okay|ok|fine|happy) (?:with|to see) (.+?)\\.?$",
                 "(?i)^(?:okay|ok|fine|allow|allowed): (.+?)\\.?$",
-                "(?i)(?:cats|wolves|cats and|including) (.+?)\\.?$",
             ]
             for pattern in patterns {
                 if let match = try? NSRegularExpression(pattern: pattern, options: []).firstMatch(

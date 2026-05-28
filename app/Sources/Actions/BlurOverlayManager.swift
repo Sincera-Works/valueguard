@@ -166,10 +166,20 @@ final class BlurOverlayManager {
 
     /// Take CG screen coords (top-left origin), apply chrome inset, and
     /// convert to NSWindow coords (bottom-left origin).
+    ///
+    /// Multi-display rule: NSWindow's global y origin lives at the bottom
+    /// of the *primary* screen's frame.maxY in CG-flipped space. So the
+    /// correct global flip is always against the primary screen, not the
+    /// screen the source window happens to be on. (Source-window bounds
+    /// from CGWindowList are already in the unified global CG top-left
+    /// space — they don't need per-screen adjustment.) The primary
+    /// screen is the one whose `frame.origin == .zero`, not necessarily
+    /// `NSScreen.screens.first`.
     private func withChromeInsetAndFlip(_ boundsCG: CGRect, app: String?) -> CGRect {
         let inset = applyChromeInset(boundsCG, app: app)
-        guard let mainScreen = NSScreen.screens.first else { return inset }
-        let flippedY = mainScreen.frame.height - inset.origin.y - inset.height
+        let primary = NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main ?? NSScreen.screens.first
+        guard let primary else { return inset }
+        let flippedY = primary.frame.height - inset.origin.y - inset.height
         return CGRect(x: inset.origin.x, y: flippedY, width: inset.width, height: inset.height)
     }
 
