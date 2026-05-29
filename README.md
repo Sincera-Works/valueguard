@@ -31,16 +31,16 @@ using a frozen SigLIP-2 vision encoder. Nothing leaves the machine at runtime.
 ┌─────────────────────────────────────────────────┐
 │  SETUP — runs once per policy update             │
 │                                                  │
-│  values.md ──► Sonnet API ──► policy.json        │
+│  values statement ──► an LLM ──► policy.json     │
 │                                  │                │
 │                                  ▼                │
 │                             SigLIP-2 text encoder │
-│                             (one-time, Python)    │
+│                             (one-time, on-device) │
 │                                  │                │
 │                                  ▼                │
 │                             policy.bin            │
 │  ──────────────────────────────────────────       │
-│  Sonnet sees only the values statement.           │
+│  The LLM sees only the values statement.          │
 │  Never receives a pixel of the user's screen.     │
 └─────────────────────────────────────────────────┘
                        │
@@ -57,11 +57,24 @@ using a frozen SigLIP-2 vision encoder. Nothing leaves the machine at runtime.
 └─────────────────────────────────────────────────┘
 ```
 
+**Compiling a policy — two paths, both send only the values statement to the
+cloud (never a pixel):**
+
+- **App (end users):** the menubar app generates a prompt and you paste it into
+  *any* chat AI you choose — Claude.ai, ChatGPT, etc. The app holds no API key
+  and makes no model calls itself; it's model-agnostic.
+- **`policy-compiler` CLI (scripted / authoring):** calls the Anthropic API
+  (Sonnet) directly from a `values.md` file.
+
+Either way, the SigLIP-2 text encoding (captions → `policy.bin`) runs on-device.
+
 ## Repository layout
 
 ```
 valueguard/
-├── policy-compiler/    TypeScript — values.md → policy.json via Sonnet API
+├── app/                Swift — SwiftUI menubar app (the end-user path):
+│                       values → policy.json via a paste-bridge to any chat AI
+├── policy-compiler/    TypeScript — values.md → policy.json via the Anthropic API (Sonnet)
 ├── model-conversion/   Python — HuggingFace SigLIP-2 → CoreML, caption embedding
 ├── daemon/             Swift — macOS daemon, ScreenCaptureKit + CoreML
 └── docs/               Architecture, threat model, build instructions

@@ -16,11 +16,11 @@ The whole system splits cleanly across a privacy boundary:
 ```
 ┌─────────────────────────── CLOUD ────────────────────────────┐
 │                                                              │
-│  values.md                                                   │
+│  values statement                                           │
 │       │                                                      │
 │       ▼                                                      │
-│  Anthropic Sonnet API ──► policy.json                        │
-│  (sees values only;       (categories,                       │
+│  an LLM ──► policy.json                                      │
+│  (sees values only,       (categories,                       │
 │   never any pixels)        contrastive captions,             │
 │                            thresholds, actions)              │
 │                                                              │
@@ -82,12 +82,25 @@ choice serves that boundary:
 
 ## Component responsibilities
 
+### Compiling a policy — two paths
+
+`policy.json` is produced by an LLM from the plain-English values statement.
+There are two paths, and they differ in *which* model and *who* calls it:
+
+- **App (`app/`, the end-user path):** the menubar app generates a prompt and
+  the user pastes it into *any* chat AI they choose (Claude.ai, ChatGPT, …),
+  then pastes the JSON back. The app holds no API key and makes no model calls
+  itself — it is model-agnostic.
+- **`policy-compiler/` CLI (TypeScript, the scripted/authoring path):** calls
+  the Anthropic API (Sonnet) directly.
+
 ### `policy-compiler/` (TypeScript)
 
 - Input: a plain-English `values.md` and a deployment mode
 - Output: `policy.json` — structured categories, contrastive caption pairs,
   thresholds, suggested actions
-- Talks to: Anthropic Sonnet API
+- Talks to: Anthropic API (Sonnet) — this CLI/authoring path only; the shipped
+  app instead pastes into a user-chosen chat AI (see above)
 - Privacy: sends only the values statement; never sees screen content
 
 ### `model-conversion/` (Python)
