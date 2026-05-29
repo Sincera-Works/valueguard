@@ -47,7 +47,7 @@ compliance story is the product.
 | 3 | User installs a network filter that blocks the partner endpoint | Medium | A | Heartbeat is fail-open from the partner's perspective — they get pinged when it stops, not when it works. |
 | 4 | False-positive blur during a presentation / interview / financial transaction | Medium | All | v0.1 ships log-only; blur is gated on a measured FP rate. Sensitive-context detection (Zoom running, screen sharing, Keynote presenter mode) auto-pauses filtering. |
 | 5 | False-negative on rare/adversarial content | Medium | All | Acknowledged limitation. The zero-shot SigLIP-2 classifier is ~85–92% accurate out of the box; a fine-tuned MLP head on logged flags pushes this to ~97% over time. Not perfect; not advertised as perfect. |
-| 6 | Cloud compile leaks values statement | Low | All | The values statement is the only thing sent to Anthropic. It contains the user's preferences but no pixels, no PII, no device info. Documented explicitly. |
+| 6 | Cloud compile leaks values statement | Low | All | The values statement is the only thing sent to the cloud LLM — whatever chat AI the user pastes it into (the app is model-agnostic), or Anthropic's API via the `policy-compiler` CLI. It contains the user's preferences but no pixels, no PII, no device info. **Mode C (compliance) deployments must use the CLI's fixed Anthropic endpoint, not the open-ended app paste-bridge, so the destination is contractually specifiable.** Documented explicitly. |
 | 7 | Audit log leaks sensitive context | Medium | All | Audit log is local-only, encrypted at rest (SQLCipher in v0.2). Thumbnails (if ever stored) are blurred *before* writing to disk. |
 | 8 | Adversarial inputs designed to fool SigLIP-2 | Low | A, C | Acknowledged. Trivially defeated by small crops, brightness shifts, or steganographic content. ValueGuard is a behavioral aid, not a hardened content gate. |
 | 9 | Partner notification endpoint is compromised | Low | A | Notifications contain only blurred thumbnails + category metadata. No raw pixels. |
@@ -78,7 +78,14 @@ document. They are also true.
    They live in memory for the duration of a single frame's scoring and
    are then discarded.
 3. **The only data transmitted off-device is the values statement,
-   transmitted once at policy-compile time to the Anthropic Sonnet API.**
+   transmitted once at policy-compile time.**
+   - *App (personal use):* pasted into a user-chosen chat AI; the app holds
+     no API key and never calls a model itself.
+   - *`policy-compiler` CLI (Mode B/C):* sent to the Anthropic API (Sonnet)
+     — a bounded, contractually-specifiable endpoint. **Compliance (Mode C)
+     deployments must use this path**, not the open-ended app paste-bridge,
+     so the data flow in this control statement is bounded.
+
    The values statement is authored by the admin (corporate mode) or
    user (personal mode) and contains generic English-language
    preferences.
