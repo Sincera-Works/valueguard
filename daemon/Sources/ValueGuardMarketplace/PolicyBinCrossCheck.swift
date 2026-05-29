@@ -113,6 +113,16 @@ public enum PolicyBinCrossCheck {
                     + "absent from policy.bin")
             }
 
+            // §2 requires the manifest threshold to match policy.bin
+            // "byte-for-byte", so we narrow the JSON `Double` to `Float` and
+            // compare 32-bit patterns exactly. This is by design and relies on
+            // the canonical pipeline: embed_captions.py packs
+            // struct.pack('<f', threshold) from the SAME policy.json decimal, and
+            // Swift's Float(Double(decimal)) follows the identical
+            // decimal→double→float rounding, so the bits match for a correctly
+            // paired bundle. An authoring tool that emits a re-rounded threshold
+            // decimal must round-trip it through Float before writing the
+            // manifest, or this exact check will (intentionally) reject the bundle.
             let manifestThreshold = Float(entry.threshold)
             guard floatBitsEqual(manifestThreshold, cat.threshold) else {
                 throw VGError.crossCheck(

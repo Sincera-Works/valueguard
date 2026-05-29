@@ -107,6 +107,14 @@ public enum Archive {
     /// Unlike ``list``, the result *includes* pure-directory entries (e.g. the
     /// `signatures/` directory) so the layout guard can distinguish a legitimate
     /// directory from a file-shaped member.
+    ///
+    /// The two `tar` invocations are a theoretical TOCTOU — the bundle file
+    /// could be replaced between them — but it is not exploitable: extraction
+    /// re-reads the bundle, the extracted bytes are re-hashed, and the
+    /// `MANIFEST.SHA256` + Ed25519 signature are verified over *those* bytes, so
+    /// a swap between the two listings cannot yield a bundle that both verifies
+    /// and installs altered content (the length-mismatch guard below also trips
+    /// on most divergences).
     static func listTyped(bundleAt url: URL) throws -> [TypedMember] {
         // Clean names (normalized exactly like `list`, but keep directory
         // entries so we can pair them with their type rows).
@@ -227,7 +235,12 @@ public enum Archive {
     ///     permitted `signatures/` subdirectory),
     /// and requires the four required top-level members plus
     /// `signatures/{author.sig,author.pub,MANIFEST.SHA256}` all be present.
-    public static func assertSafeLayout(_ members: [String]) throws {
+    ///
+    /// Intentionally `internal`, not `public`: this name-only guard is the
+    /// *weaker* of the two overloads (it does not reject symlinks/hardlinks),
+    /// and the verify pipeline always uses the `[TypedMember]` overload. Kept
+    /// internal so an external caller can't accidentally pick the weaker check.
+    static func assertSafeLayout(_ members: [String]) throws {
         var present = Set<String>()
         for raw in members {
             try assertSafeName(raw)
@@ -376,9 +389,19 @@ public enum Archive {
             throw VGError.archive("could not launch tar: \(error.localizedDescription)")
         }
 
-        // Read both pipes fully before waiting to avoid deadlock on large output.
+        // Drain stdout and stderr concurrently. Reading them serially can
+        // deadlock: if tar fills the pipe we are NOT currently draining (the
+        // ~64 KB kernel buffer), it blocks on write while we block reading the
+        // other pipe, and neither side progresses. Read stderr on a background
+        // queue while we read stdout here, then join before waiting.
+        let errHandle = errPipe.fileHandleForReading
+        var errData = Data()
+        let group = DispatchGroup()
+        DispatchQueue.global(qos: .userInitiated).async(group: group) {
+            errData = errHandle.readDataToEndOfFile()
+        }
         let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        group.wait()
         proc.waitUntilExit()
 
         guard proc.terminationStatus == 0 else {

@@ -322,6 +322,26 @@ public struct Installer {
 
         let relativeTarget = layout.relativeTarget(author: author, slug: slug, version: version)
 
+        // Update the lockfile's active field BEFORE swapping the symlink. The
+        // lockfile is the source of truth (`current()` reads the symlink only as
+        // a convenience), so writing it first means a crash *between* the two
+        // steps leaves the source of truth pointing at the just-activated config
+        // with at most a stale `configs/active` symlink — the recoverable
+        // direction — rather than a symlink claiming an active config the
+        // lockfile never recorded. On a symlink-swap failure we roll this back
+        // so the two never disagree.
+        let activeRef = "\(author)/\(slug)"
+        let priorActive = lockfile.active
+        if lockfile.active != activeRef {
+            lockfile.active = activeRef
+            try lockfile.save(to: layout.lockfileURL)
+        }
+        func rollbackActive() {
+            guard lockfile.active != priorActive else { return }
+            lockfile.active = priorActive
+            try? lockfile.save(to: layout.lockfileURL)
+        }
+
         // Create a temp symlink in configs/ pointing at the relative target,
         // then atomically rename it over configs/active.
         let tmpLink = layout.configsDir
@@ -335,6 +355,7 @@ public struct Installer {
                 withDestinationPath: relativeTarget
             )
         } catch {
+            rollbackActive()
             throw VGError.io("could not create temporary active symlink: \(error.localizedDescription)")
         }
 
@@ -350,14 +371,8 @@ public struct Installer {
         guard result == 0 else {
             let err = String(cString: strerror(errno))
             try? FileManager.default.removeItem(at: tmpLink)
+            rollbackActive()
             throw VGError.io("could not atomically swap active symlink: \(err)")
-        }
-
-        // Keep the lockfile's active field in sync with the symlink.
-        let activeRef = "\(author)/\(slug)"
-        if lockfile.active != activeRef {
-            lockfile.active = activeRef
-            try lockfile.save(to: layout.lockfileURL)
         }
     }
 
