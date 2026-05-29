@@ -390,11 +390,22 @@ public struct Installer {
             throw VGError.notInstalled("\(author)/\(slug)")
         }
 
-        // If this config is active, remove the active symlink first so we never
-        // leave a dangling symlink pointing into a removed tree.
-        let wasActive = (try resolveActiveRef()).map { $0.author == author && $0.slug == slug } ?? false
-        if wasActive {
-            try? FileManager.default.removeItem(at: layout.activeSymlink)
+        // If this config is active, remove the active symlink BEFORE deleting the
+        // tree it points into, so we never leave a dangling symlink behind. We
+        // must decide whether the link names this config and remove it
+        // deterministically — a silent `try?` here could swallow a real removal
+        // failure and leave `configs/active` dangling at a just-deleted tree.
+        if activeSymlinkPointsAt(author: author, slug: slug) {
+            do {
+                try FileManager.default.removeItem(at: layout.activeSymlink)
+            } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                // Already gone (e.g. removed concurrently). The post-condition —
+                // no active symlink pointing at this config — already holds.
+            } catch {
+                throw VGError.io(
+                    "could not remove active symlink at \(layout.activeSymlink.path): "
+                    + error.localizedDescription)
+            }
         }
 
         // Remove the slug directory tree (all installed versions of this config).
@@ -442,6 +453,25 @@ public struct Installer {
     }
 
     // MARK: - Private helpers
+
+    /// Whether the `configs/active` symlink names `author/slug` — i.e. removing
+    /// that config would leave `active` dangling.
+    ///
+    /// Reads the link's RAW target (`destinationOfSymbolicLink`, which does not
+    /// follow the link), so it still recognizes a target whose `version`
+    /// component is missing or otherwise malformed — exactly the dangling cases
+    /// `resolveActiveRef()` discards by returning `nil`. The match is on the
+    /// leading `author/slug` components; the trailing `version` is irrelevant to
+    /// "does this link point into the tree we are about to delete".
+    private func activeSymlinkPointsAt(author: String, slug: String) -> Bool {
+        guard let target = try? FileManager.default.destinationOfSymbolicLink(
+            atPath: layout.activeSymlink.path
+        ) else {
+            return false
+        }
+        let parts = target.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        return parts.count >= 2 && parts[0] == author && parts[1] == slug
+    }
 
     /// Read the `configs/active` symlink and parse its relative target
     /// (`"author/slug/version"`) into components. Returns `nil` when the symlink

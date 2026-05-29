@@ -394,22 +394,38 @@ public enum Archive {
         // ~64 KB kernel buffer), it blocks on write while we block reading the
         // other pipe, and neither side progresses. Read stderr on a background
         // queue while we read stdout here, then join before waiting.
+        //
+        // The background read writes into a reference-type box rather than a
+        // captured stack `var`, so there is no mutation of a captured stack slot
+        // across the queue boundary. `group.wait()` happens-before we read
+        // `box.data`, establishing the ordering that makes the single write
+        // visible here without a data race.
         let errHandle = errPipe.fileHandleForReading
-        var errData = Data()
+        let box = DataBox()
         let group = DispatchGroup()
         DispatchQueue.global(qos: .userInitiated).async(group: group) {
-            errData = errHandle.readDataToEndOfFile()
+            box.data = errHandle.readDataToEndOfFile()
         }
         let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
         group.wait()
         proc.waitUntilExit()
 
         guard proc.terminationStatus == 0 else {
-            let stderr = String(data: errData, encoding: .utf8)?
+            let stderr = String(data: box.data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             throw VGError.archive("tar exit \(proc.terminationStatus): \(stderr)")
         }
 
         return String(data: outData, encoding: .utf8) ?? ""
     }
+}
+
+/// A minimal reference holder for the concurrently-drained stderr bytes.
+///
+/// Using a reference type (rather than capturing and mutating a stack `var`)
+/// makes the cross-queue handoff in `Archive.run` unambiguously clean: the
+/// background drain assigns `data` exactly once, and the caller reads it only
+/// after `group.wait()` — a happens-before edge that publishes the write.
+private final class DataBox {
+    var data = Data()
 }
