@@ -2,13 +2,16 @@ name: Claude Code Review
 
 # Automatic Claude review on every pull request.
 #
-# Auth: the Claude GitHub App (OAuth). Install the app on this repo and add a
-# CLAUDE_CODE_OAUTH_TOKEN repository secret (generate with `claude setup-token`).
-# Until that secret exists this job fails fast — it is intentionally NOT a
-# required status check, so it can't block merges while being wired up.
+# Auth: the Claude GitHub App (OAuth). The app must be installed on this repo
+# and a CLAUDE_CODE_OAUTH_TOKEN repository secret must exist.
+#
+# The action runs Claude in agent mode; it can only post review feedback if the
+# relevant tools are granted via claude_args --allowedTools. Without them the
+# job still goes green but Claude hits permission denials and posts nothing — so
+# the allow-list below is load-bearing, not optional.
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
 
 jobs:
   claude-review:
@@ -33,15 +36,24 @@ jobs:
             on ValueGuard (on-device content filtering; SwiftUI menubar app +
             an SPM daemon library).
 
-            Prioritise, in order:
+            First read the diff with `gh pr diff` and inspect changed files as
+            needed (Read/Grep). Prioritise, in order:
               1. Correctness bugs and logic errors.
               2. Concurrency / actor-isolation hazards (this codebase is
                  @MainActor and Swift-actor heavy).
               3. Resource leaks, retain cycles, and lifecycle bugs.
               4. Incorrect Apple / Carbon / CoreGraphics API usage.
+              5. Security issues (signature/verify bypass, path traversal,
+                 unsafe file handling) for the marketplace / vg code.
 
-            Verify every claim against the actual diff before raising it; do
-            not nitpick formatting or style. Leave concise inline review
-            comments on the specific lines, plus one short summary comment. If
-            you find nothing substantive, say so briefly.
-          claude_args: "--max-turns 30"
+            Verify every claim against the actual diff before raising it; do not
+            nitpick formatting or style. Leave specific line-level findings with
+            the inline comment tool.
+
+            ALWAYS finish by posting exactly one summary comment with
+            `gh pr comment` — even when you find nothing substantive (say so
+            explicitly). The review must never be silent: a green check must mean
+            a real review happened.
+          claude_args: |
+            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*),mcp__github_inline_comment__create_inline_comment"
+            --max-turns 40
