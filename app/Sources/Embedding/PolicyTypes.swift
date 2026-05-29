@@ -44,7 +44,7 @@ enum PolicyParseError: LocalizedError {
         case .badCategoryID(let id):
             return "Category id '\(id)' must be snake_case, lowercase, start with a letter."
         case .captionCount(let cat, let side, let count):
-            return "Category '\(cat)' has \(count) \(side) captions — expected 6–14."
+            return "Category '\(cat)' has \(count) \(side) captions — ask the assistant for between 6 and 14 captions per side."
         case .thresholdRange(let cat, let value):
             return "Category '\(cat)' threshold \(value) is outside 0…1."
         }
@@ -53,8 +53,9 @@ enum PolicyParseError: LocalizedError {
 
 enum PolicyParser {
     static func parse(_ raw: String) throws -> Policy {
-        let trimmed = stripFences(raw).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw PolicyParseError.empty }
+        let extracted = extractJSON(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !extracted.isEmpty else { throw PolicyParseError.empty }
+        let trimmed = normalizeQuotes(extracted)
         guard let data = trimmed.data(using: .utf8) else {
             throw PolicyParseError.schemaMismatch(message: "input is not UTF-8")
         }
@@ -76,21 +77,36 @@ enum PolicyParser {
         return policy
     }
 
-    static func stripFences(_ raw: String) -> String {
+    /// Pull the JSON payload out of a Claude.ai reply that may wrap it in
+    /// prose ("Here's your policy: ```json … ``` Let me know!"). Strategy:
+    ///   1. The FIRST ```-fenced block anywhere in the input (non-anchored),
+    ///      with an optional `json` language tag.
+    ///   2. If there is no fence, slice from the first '{' to the last '}'.
+    ///   3. Otherwise, return the trimmed input unchanged.
+    static func extractJSON(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 1. First fenced code block anywhere in the text.
+        if let m = s.firstMatch(of: /```[ \t]*(?:json)?[ \t]*\r?\n([\s\S]*?)```/) {
+            return String(m.output.1).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // 2. No fence — slice between the first '{' and the last '}'.
+        if let open = s.firstIndex(of: "{"), let close = s.lastIndex(of: "}"), open < close {
+            return String(s[open...close])
+        }
+
+        return s
+    }
+
+    /// Replace typographic quotes a chat UI may have smart-substituted so the
+    /// JSON decoder sees plain ASCII delimiters.
+    static func normalizeQuotes(_ raw: String) -> String {
         var s = raw
-        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let m = try? /^```(?:json)?\n([\s\S]*?)\n```$/.wholeMatch(in: s) {
-            s = String(m.output.1)
-        }
-        if s.hasPrefix("```") {
-            s.removeFirst(3)
-            if s.hasPrefix("json") { s.removeFirst(4) }
-            s = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        if s.hasSuffix("```") {
-            s.removeLast(3)
-            s = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        s = s.replacingOccurrences(of: "\u{201C}", with: "\"") // “ left double
+        s = s.replacingOccurrences(of: "\u{201D}", with: "\"") // ” right double
+        s = s.replacingOccurrences(of: "\u{2018}", with: "'")  // ‘ left single
+        s = s.replacingOccurrences(of: "\u{2019}", with: "'")  // ’ right single
         return s
     }
 

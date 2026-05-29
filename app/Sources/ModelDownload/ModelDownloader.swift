@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 
 enum ModelDownloadError: LocalizedError {
+    case network(String)
     case badResponse(Int)
     case shaMismatch(expected: String, got: String)
     case extractionFailed(String)
@@ -9,14 +10,17 @@ enum ModelDownloadError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .network(let detail):
+            return "Couldn’t download the model — \(detail). Check your internet connection and try again."
         case .badResponse(let code):
-            return "Server returned HTTP \(code)."
-        case .shaMismatch(let expected, let got):
-            return "SHA-256 mismatch — refusing to install. Expected \(expected), got \(got)."
-        case .extractionFailed(let m):
-            return "Tar extraction failed: \(m)"
+            return "The download server returned an unexpected response (HTTP \(code)). Please try again in a moment."
+        case .shaMismatch:
+            return "The downloaded model didn’t pass its integrity check, so it wasn’t installed. This usually means the download was interrupted. Please try again."
+        case .extractionFailed:
+            return "The model downloaded but couldn’t be unpacked. Please try again."
         case .configurationPlaceholder:
-            return "Model URL/SHA256 is still a placeholder. Edit ModelManifest.swift with the real release."
+            // Should be unreachable in shipping builds — the manifest carries a real URL/SHA.
+            return "ValueGuard isn’t configured to download the model. Please reinstall the app."
         }
     }
 }
@@ -48,7 +52,13 @@ final class ModelDownloader: NSObject {
         var request = URLRequest(url: url)
         request.timeoutInterval = 60
 
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await URLSession.shared.bytes(for: request)
+        } catch let urlError as URLError {
+            throw ModelDownloadError.network(networkDetail(for: urlError))
+        }
         guard let http = response as? HTTPURLResponse else {
             throw ModelDownloadError.badResponse(0)
         }
@@ -68,23 +78,30 @@ final class ModelDownloader: NSObject {
         var buffer = Data()
         buffer.reserveCapacity(64 * 1024)
 
-        for try await byte in bytes {
-            buffer.append(byte)
-            if buffer.count >= 64 * 1024 {
+        do {
+            for try await byte in bytes {
+                buffer.append(byte)
+                if buffer.count >= 64 * 1024 {
+                    try handle.write(contentsOf: buffer)
+                    hasher.update(data: buffer)
+                    received += Int64(buffer.count)
+                    buffer.removeAll(keepingCapacity: true)
+                    onProgress(.init(bytesReceived: received, bytesExpected: expected))
+                }
+            }
+            if !buffer.isEmpty {
                 try handle.write(contentsOf: buffer)
                 hasher.update(data: buffer)
                 received += Int64(buffer.count)
-                buffer.removeAll(keepingCapacity: true)
                 onProgress(.init(bytesReceived: received, bytesExpected: expected))
             }
+            try handle.close()
+        } catch let urlError as URLError {
+            // Connection dropped mid-download — clean up the partial file and surface a retryable message.
+            try? handle.close()
+            try? FileManager.default.removeItem(at: tempTar)
+            throw ModelDownloadError.network(networkDetail(for: urlError))
         }
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
-            hasher.update(data: buffer)
-            received += Int64(buffer.count)
-            onProgress(.init(bytesReceived: received, bytesExpected: expected))
-        }
-        try handle.close()
 
         let digest = hasher.finalize()
         let hex = digest.map { String(format: "%02x", $0) }.joined()
@@ -95,6 +112,22 @@ final class ModelDownloader: NSObject {
 
         try extract(tarGz: tempTar, into: AppSupport.modelsURL)
         try? FileManager.default.removeItem(at: tempTar)
+    }
+
+    /// Map a URLError to a short, plain-language clause for the user-facing message.
+    private func networkDetail(for error: URLError) -> String {
+        switch error.code {
+        case .notConnectedToInternet:
+            return "this Mac isn’t connected to the internet"
+        case .timedOut:
+            return "the connection timed out"
+        case .networkConnectionLost:
+            return "the network connection was lost"
+        case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+            return "the download server couldn’t be reached"
+        default:
+            return "the connection failed"
+        }
     }
 
     /// Extract a .tar.gz via /usr/bin/tar. Foundation has no tar implementation,

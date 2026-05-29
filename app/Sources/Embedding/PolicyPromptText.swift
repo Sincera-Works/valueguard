@@ -21,9 +21,10 @@ enum PolicyPromptText {
       no consistent visual signature.
     - It does NOT handle negation. "no nudity" or "not violent" will not
       score the way you expect. Always use positive descriptive phrasings.
-    - Caption ensembles average out noise. You provide 8-12 phrasings per side,
-      varied in composition, framing, and medium (photo, drawing, 3D render,
-      screenshot, painting, etc.).
+    - Caption ensembles average out noise. You provide 8-12 phrasings per side
+      (a hard floor of 6 and ceiling of 14 — outside that range the policy is
+      rejected), varied in composition, framing, and medium (photo, drawing,
+      3D render, screenshot, painting, etc.).
     - Contrastive captions, two cases:
       * ATTRIBUTE categories (nudity, violence, gore): same subject, same
         medium, only the attribute changes. "a photograph of a nude person"
@@ -68,8 +69,9 @@ enum PolicyPromptText {
     block", "must not see").
 
     Constraints:
-    - Caption count: 8-12 per side. Less than 8 dilutes the ensemble signal;
-      more than 12 hits diminishing returns and may dilute it.
+    - Caption count: aim for 8-12 per side, and always stay within 6-14. Fewer
+      than 8 dilutes the ensemble signal; more than 12 hits diminishing returns
+      and may dilute it. Fewer than 6 or more than 14 is rejected outright.
     - Never use the words "not", "no", "without", "lacking", "absent" inside
       a caption. Use positive descriptions of what IS present in the alternative.
     - Category IDs are snake_case, lowercase, start with a letter.

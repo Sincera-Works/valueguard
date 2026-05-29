@@ -21,12 +21,20 @@ struct StepPasteJSON: View {
             if let policy = state.parsedPolicy {
                 policySummary(policy)
             } else if let err = state.parseError, !state.pastedJSON.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text(err)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(err)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Label(
+                        "Tip: paste this error back into the chat and ask it to regenerate JSON strictly matching the requested shape.",
+                        systemImage: "lightbulb"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
                 }
             }
         }
