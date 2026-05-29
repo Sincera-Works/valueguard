@@ -3,6 +3,20 @@
 State-changing actions (build changes, signing swaps, policy revisions, model
 upgrades). Newest first.
 
+## 2026-05-28 — Repo hardening: branch protection + Claude review CI
+
+- **Repo moved** to `Sincera-Works/valueguard` (was `sincera7/valueguard`);
+  local `origin` updated. Pruned three merged branches.
+- **Branch protection on `main`**: PR required, 0 required approvals (so the
+  maintainer can still merge their own PRs), conversation resolution required,
+  force-push and branch deletion blocked. Admin enforcement left off as an
+  escape hatch.
+- **Claude review CI** (PR #5): `claude-code-review.yml` (auto-review on every
+  PR) and `claude.yml` (interactive `@claude`), both via
+  `anthropics/claude-code-action@v1` authenticating with the
+  `CLAUDE_CODE_OAUTH_TOKEN` secret (Claude GitHub App / OAuth). Once the review
+  check runs green it will be added as a required status check.
+
 ## 2026-05-28 — Phase 6 action layer: window level, emergency dismiss, auto-pause
 
 Started Phase 6 (action layer). Three changes, app + daemon both build clean.
