@@ -1,8 +1,15 @@
 import SwiftUI
+import Combine
 
 struct OnboardingView: View {
     @Bindable var state: OnboardingState
     var onFinish: () -> Void
+
+    // The embed step builds policy.bin on disk via private internal state, which
+    // SwiftUI can't observe. We poll the file while on .embed so the gated
+    // Continue button flips enabled the moment the build finishes.
+    @State private var policyBinExists = FileManager.default.fileExists(atPath: AppSupport.policyBinURL.path)
+    private let policyCheckTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,6 +23,11 @@ struct OnboardingView: View {
         }
         .frame(minWidth: 720, minHeight: 540)
         .onAppear { state.loadPersistedValues() }
+        .onReceive(policyCheckTimer) { _ in
+            guard state.step == .embed else { return }
+            let exists = FileManager.default.fileExists(atPath: AppSupport.policyBinURL.path)
+            if exists != policyBinExists { policyBinExists = exists }
+        }
     }
 
     private var stepHeader: some View {
@@ -87,8 +99,14 @@ struct OnboardingView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(state.parsedPolicy == nil)
         case .embed:
+            // Gate on a real policy.bin existing on disk — mirrors how .values
+            // and .pasteJSON gate on their own outputs. A failed or skipped embed
+            // must not advance into a silently-stopped end state. `policyBinExists`
+            // is polled while on this step (see body) so the button flips enabled
+            // as soon as the build completes.
             Button("Continue") { state.next() }
                 .keyboardShortcut(.defaultAction)
+                .disabled(!policyBinExists)
         case .permission:
             Button("Finish") { onFinish() }
                 .keyboardShortcut(.defaultAction)

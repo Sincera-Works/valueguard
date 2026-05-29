@@ -9,13 +9,11 @@ import Foundation
 /// `SigLIP2Text.mlpackage` directory inside `AppSupport.modelsURL`.
 enum ModelManifest {
     /// HTTPS URL of a gzip-compressed tarball containing `SigLIP2Text.mlpackage/`.
-    /// TODO(B5): replace with the real GitHub release URL once the asset is published.
-    static let textEncoderURL = URL(string: "https://github.com/PLACEHOLDER/valueguard/releases/download/v0.1.0-models/SigLIP2Text.mlpackage.tar.gz")!
+    static let textEncoderURL = URL(string: "https://github.com/Sincera-Works/valueguard/releases/download/v0.1.0-models/SigLIP2Text.mlpackage.tar.gz")!
 
     /// SHA256 of the tarball — verified after download, before extraction.
-    /// TODO(B5): paste the actual `shasum -a 256 SigLIP2Text.mlpackage.tar.gz` output here.
-    static let textEncoderSHA256 = "PLACEHOLDER_SHA256_64_HEX_CHARS_PLACEHOLDER_SHA256_64_HEX_CHARS_X"
+    static let textEncoderSHA256 = "6f199574785a91071d266a1305276f54e5b99e5005a6cb2fea621ed447194e41"
 
     /// Approximate compressed size, for UI progress bars when Content-Length is absent.
-    static let textEncoderBytes: Int64 = 560_000_000
+    static let textEncoderBytes: Int64 = 506_000_000
 }

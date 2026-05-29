@@ -6,9 +6,13 @@ struct StepEmbedPlaceholder: View {
     @State private var pipelineProgress: PolicyPipeline.Progress?
     @State private var downloadProgress: ModelDownloader.Progress?
     @State private var errorMessage: String?
+    @State private var lastFailedAction: FailedAction?
     @State private var downloader = ModelDownloader()
 
     enum Status { case idle, modelMissing, downloading, embedding, done }
+
+    /// Which action a Retry button should re-run after a failure.
+    enum FailedAction { case download, build }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -32,7 +36,7 @@ struct StepEmbedPlaceholder: View {
                 .disabled(state.parsedPolicy == nil)
         case .modelMissing:
             VStack(alignment: .leading, spacing: 8) {
-                Label("Text encoder needs to be installed (~539 MB, one time)", systemImage: "icloud.and.arrow.down")
+                Label("Text encoder needs to be installed (~506 MB, one time)", systemImage: "icloud.and.arrow.down")
                 Text("Download verifies by SHA-256 before install. If you already have a SigLIP2Text.mlpackage on disk (e.g. from the Python conversion pipeline), you can point us at it instead.")
                     .foregroundStyle(.secondary).font(.callout)
                 HStack(spacing: 12) {
@@ -74,9 +78,20 @@ struct StepEmbedPlaceholder: View {
         }
 
         if let errorMessage {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text(errorMessage).font(.callout).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(errorMessage).font(.callout).foregroundStyle(.secondary)
+                }
+                if let lastFailedAction {
+                    Button("Try again") {
+                        switch lastFailedAction {
+                        case .download: Task { await runDownload() }
+                        case .build: Task { await runPipeline() }
+                        }
+                    }
+                    .controlSize(.large)
+                }
             }
         }
     }
@@ -98,6 +113,7 @@ struct StepEmbedPlaceholder: View {
 
     private func importFromDisk() {
         errorMessage = nil
+        lastFailedAction = nil
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -120,6 +136,7 @@ struct StepEmbedPlaceholder: View {
 
     private func runDownload() async {
         errorMessage = nil
+        lastFailedAction = nil
         status = .downloading
         downloadProgress = nil
         do {
@@ -127,6 +144,7 @@ struct StepEmbedPlaceholder: View {
             refreshStatus()
         } catch {
             errorMessage = error.localizedDescription
+            lastFailedAction = .download
             refreshStatus()
         }
     }
@@ -134,6 +152,7 @@ struct StepEmbedPlaceholder: View {
     private func runPipeline() async {
         guard let policy = state.parsedPolicy else { return }
         errorMessage = nil
+        lastFailedAction = nil
         status = .embedding
         pipelineProgress = nil
         do {
@@ -143,6 +162,7 @@ struct StepEmbedPlaceholder: View {
             status = .done
         } catch {
             errorMessage = error.localizedDescription
+            lastFailedAction = .build
             status = .idle
         }
     }

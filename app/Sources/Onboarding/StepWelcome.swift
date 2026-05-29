@@ -19,7 +19,7 @@ struct StepWelcome: View {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Write a short values statement.", systemImage: "1.circle")
                 Label("Copy a prompt into any chat AI (Claude.ai, ChatGPT). Paste the JSON back here.", systemImage: "2.circle")
-                Label("ValueGuard downloads a 539 MB model the first time, then compiles your policy locally.", systemImage: "3.circle")
+                Label("ValueGuard downloads a 506 MB model the first time, then compiles your policy locally.", systemImage: "3.circle")
                 Label("Grant Screen Recording so the daemon can see what's on screen.", systemImage: "4.circle")
             }
             .foregroundStyle(.secondary)

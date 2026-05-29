@@ -8,6 +8,11 @@ final class MenubarController: NSObject {
     private let openSettings: () -> Void
     private let onEmergencyDismiss: () -> Void
     private var pauseItem: NSMenuItem?
+    /// Disabled menu item that surfaces *why* filtering isn't running. Hidden
+    /// unless the daemon is in a `.failed` state (or we're mid-relaunch).
+    private var failureItem: NSMenuItem?
+    private var privacySettingsItem: NSMenuItem?
+    private var failureSeparatorItem: NSMenuItem?
 
     init(
         host: DaemonHost,
@@ -21,20 +26,23 @@ final class MenubarController: NSObject {
         self.onEmergencyDismiss = onEmergencyDismiss
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
-        apply(status: host.status)
         buildMenu()
+        apply(status: host.status)
     }
 
     func apply(status: DaemonHost.Status) {
         guard let button = statusItem.button else { return }
         let (symbol, accessibility): (String, String)
         switch status {
-        case .stopped, .failed:
+        case .stopped:
             symbol = "xmark.shield.fill"
             accessibility = "ValueGuard — stopped"
+        case .failed:
+            symbol = "exclamationmark.shield.fill"
+            accessibility = "ValueGuard — error (filtering not running)"
         case .starting:
             symbol = "clock.shield.fill"
-            accessibility = "ValueGuard — starting"
+            accessibility = "ValueGuard — preparing model…"
         case .running:
             symbol = "checkmark.shield.fill"
             accessibility = "ValueGuard — running"
@@ -42,7 +50,19 @@ final class MenubarController: NSObject {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: accessibility)
         image?.isTemplate = true
         button.image = image
+        button.toolTip = accessibility
         pauseItem?.title = host.isRunning ? "Pause" : "Resume"
+        updateFailureItem(status: status)
+    }
+
+    /// Briefly tells the user the app is relaunching to pick up a freshly-granted
+    /// Screen Recording permission (the capture API only honors it for a new
+    /// process launch). The relaunched instance starts filtering normally.
+    func showRelaunchNotice() {
+        statusItem.button?.toolTip = "Restarting to activate Screen Recording…"
+        failureItem?.title = "Restarting to activate Screen Recording…"
+        failureItem?.isHidden = false
+        failureSeparatorItem?.isHidden = false
     }
 
     private func buildMenu() {
@@ -51,6 +71,25 @@ final class MenubarController: NSObject {
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
+
+        // Failure reason + remediation. Hidden until the daemon reports .failed
+        // (or we're mid-relaunch); see updateFailureItem(status:).
+        let failure = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        failure.isEnabled = false
+        failure.isHidden = true
+        failureItem = failure
+        menu.addItem(failure)
+
+        let privacy = NSMenuItem(title: "Open Privacy Settings…", action: #selector(openPrivacySettings), keyEquivalent: "")
+        privacy.target = self
+        privacy.isHidden = true
+        privacySettingsItem = privacy
+        menu.addItem(privacy)
+
+        let failureSeparator = NSMenuItem.separator()
+        failureSeparator.isHidden = true
+        failureSeparatorItem = failureSeparator
+        menu.addItem(failureSeparator)
 
         let pause = NSMenuItem(title: host.isRunning ? "Pause" : "Resume", action: #selector(togglePause), keyEquivalent: "")
         pause.target = self
@@ -87,6 +126,28 @@ final class MenubarController: NSObject {
         menu.addItem(quit)
 
         statusItem.menu = menu
+    }
+
+    /// Shows or hides the failure reason + "Open Privacy Settings…" affordances
+    /// based on the daemon state. A failed start is the only place a fresh tester
+    /// can end up silently not filtering, so we make the reason visible here.
+    private func updateFailureItem(status: DaemonHost.Status) {
+        guard let failureItem, let privacySettingsItem, let failureSeparatorItem else { return }
+        if case .failed(let reason) = status {
+            failureItem.title = "Not filtering: \(reason)"
+            failureItem.isHidden = false
+            privacySettingsItem.isHidden = false
+            failureSeparatorItem.isHidden = false
+        } else {
+            failureItem.isHidden = true
+            privacySettingsItem.isHidden = true
+            failureSeparatorItem.isHidden = true
+        }
+    }
+
+    @objc private func openPrivacySettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func togglePause() {
