@@ -73,25 +73,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in menubar?.apply(status: status) }
         }
         onboarding.onFinish = { [weak self, weak host, weak menubar, weak settings] in
-            guard let host else { return }
-            guard host.hasPolicy else {
-                menubar?.apply(status: .stopped)
-                return
+            // onFinish is invoked on the main thread (a UI callback); assert that
+            // explicitly so the @MainActor calls below are isolation-clean under
+            // Swift 6 / strict concurrency, not just under Swift 5.10.
+            MainActor.assumeIsolated {
+                guard let host else { return }
+                guard host.hasPolicy else {
+                    menubar?.apply(status: .stopped)
+                    return
+                }
+                // If Screen Recording was granted *during* this session, the
+                // current process won't be honored by the capture API — only a
+                // new launch will. Relaunch once (state is already persisted) so
+                // filtering actually starts instead of failing into a silent red
+                // menubar.
+                if self?.shouldRelaunchForScreenRecording() == true {
+                    self?.relaunchForScreenRecording(menubar: menubar)
+                    return
+                }
+                let s = settings
+                host.start(
+                    logOnly: s?.logOnly ?? true,
+                    sampleRateHz: s?.sampleRateHz ?? 1.0,
+                    writeScoresLog: s?.writeScoresLog ?? true
+                )
             }
-            // If Screen Recording was granted *during* this session, the current
-            // process won't be honored by the capture API — only a new launch
-            // will. Relaunch once (state is already persisted) so filtering
-            // actually starts instead of failing into a silent red menubar.
-            if self?.shouldRelaunchForScreenRecording() == true {
-                self?.relaunchForScreenRecording(menubar: menubar)
-                return
-            }
-            let s = settings
-            host.start(
-                logOnly: s?.logOnly ?? true,
-                sampleRateHz: s?.sampleRateHz ?? 1.0,
-                writeScoresLog: s?.writeScoresLog ?? true
-            )
         }
         if host.hasPolicy {
             host.start(
@@ -117,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// True only when Screen Recording was *not* granted at launch but is now —
     /// i.e. the user just granted it during onboarding. The relaunched instance
     /// sees `screenRecordingGrantedAtLaunch == true`, so this never fires twice.
+    @MainActor
     private func shouldRelaunchForScreenRecording() -> Bool {
         !screenRecordingGrantedAtLaunch && CGPreflightScreenCaptureAccess()
     }

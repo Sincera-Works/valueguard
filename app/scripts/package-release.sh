@@ -70,6 +70,7 @@ xcrun notarytool submit "$APPZIP" --keychain-profile "$NOTARY_PROFILE" --wait
 echo "==> [5/8] stapling the APP"
 xcrun stapler staple "$APP"
 xcrun stapler validate "$APP"
+rm -f "$APPZIP"   # notarization zip no longer needed; keep $OUT to just the DMG
 
 echo "==> [6/8] building DMG from the stapled app"
 STAGE="$OUT/dmg"; mkdir -p "$STAGE"

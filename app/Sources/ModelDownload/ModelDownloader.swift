@@ -101,6 +101,13 @@ final class ModelDownloader: NSObject {
             try? handle.close()
             try? FileManager.default.removeItem(at: tempTar)
             throw ModelDownloadError.network(networkDetail(for: urlError))
+        } catch {
+            // Any other failure (e.g. a POSIXError from `handle.write` on a full
+            // disk) — still close the handle and remove the partial tarball so we
+            // never leak it, then surface the original error.
+            try? handle.close()
+            try? FileManager.default.removeItem(at: tempTar)
+            throw error
         }
 
         let digest = hasher.finalize()
