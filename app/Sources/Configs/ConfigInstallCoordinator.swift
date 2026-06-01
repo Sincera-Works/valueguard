@@ -191,10 +191,12 @@ final class ConfigInstallCoordinator: ObservableObject {
         }
 
         // The resolve + download is network-bearing and the marketplace API is
-        // synchronous (it bridges URLSession over a semaphore internally), so run
-        // it off the main actor to keep the UI responsive, then hop back to
-        // publish state.
-        let result: Result<ConfirmationInfo, Error> = await Task.detached(priority: .userInitiated) {
+        // synchronous (it bridges URLSession over a DispatchSemaphore internally,
+        // blocking for up to the request timeout). Run it on a DispatchQueue
+        // worker via `runBlocking` — a queue thread is allowed to block, whereas a
+        // `Task.detached` cooperative-pool thread is not (SE-0296) — then hop back
+        // to the main actor to publish state.
+        let result: Result<ConfirmationInfo, Error> = await Self.runBlocking {
             let client = RegistryClient(baseURL: baseURL)
             let (bundleURL, resolved) = try client.resolveAndDownload(
                 author: parsed.author,
@@ -269,7 +271,7 @@ final class ConfigInstallCoordinator: ObservableObject {
                 verifyPassed: report.allPassed,
                 bundleTempURL: bundleURL
             )
-        }.result
+        }
 
         switch result {
         case .success(let info):
@@ -293,16 +295,11 @@ final class ConfigInstallCoordinator: ObservableObject {
         state = .installing
 
         let bundleURL = info.bundleTempURL
-        let result: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
-            do {
-                let layout = try InstallLayout()
-                let installer = Installer(layout: layout)
-                try installer.install(bundleAt: bundleURL)
-                return ()
-            } catch {
-                throw error
-            }
-        }.result
+        let result: Result<Void, Error> = await Self.runBlocking {
+            let layout = try InstallLayout()
+            let installer = Installer(layout: layout)
+            try installer.install(bundleAt: bundleURL)
+        }
 
         // The downloaded temp bundle is consumed either way (install moves the
         // extraction, not this file); remove it so temp doesn't accumulate.
@@ -388,7 +385,7 @@ final class ConfigInstallCoordinator: ObservableObject {
         let dest = flatPolicyURL
 
         do {
-            try await Task.detached(priority: .userInitiated) {
+            try await Self.runBlocking {
                 let layout = try InstallLayout()
                 let installer = Installer(layout: layout)
 
@@ -415,7 +412,7 @@ final class ConfigInstallCoordinator: ObservableObject {
                 // Copy-on-activate: stage to a sibling temp then atomically
                 // replace the daemon's flat file so it is never half-written.
                 try Self.atomicCopy(from: sourcePolicy, to: dest)
-            }.value
+            }.get()
         } catch {
             // Surface to the banner AND rethrow so the caller can react. Refresh
             // the list too: `Installer.activate` writes the lockfile `active`
@@ -456,10 +453,10 @@ final class ConfigInstallCoordinator: ObservableObject {
         guard !isBusy else {
             throw VGError.io("can't uninstall while another operation is in progress")
         }
-        try await Task.detached(priority: .userInitiated) {
+        try await Self.runBlocking {
             let layout = try InstallLayout()
             try Installer(layout: layout).uninstall(author: author, slug: slug)
-        }.value
+        }.get()
         refresh()
     }
 
@@ -597,6 +594,27 @@ final class ConfigInstallCoordinator: ObservableObject {
                 : String(cString: strerror(capturedErrno))
             try? fm.removeItem(at: staging)
             throw VGError.io("could not install policy.bin at \(dest.path): \(detail)")
+        }
+    }
+
+    /// Run a synchronous, potentially-blocking throwing closure on a
+    /// `DispatchQueue` worker thread and await its `Result`.
+    ///
+    /// The marketplace library API is synchronous and bridges `URLSession` over a
+    /// `DispatchSemaphore` internally, so it blocks its caller for up to the
+    /// request timeout. Running it inside `Task.detached` would block a Swift
+    /// Concurrency *cooperative-pool* thread, which SE-0296 prohibits (and a
+    /// future strict-concurrency toolchain will warn on). A `DispatchQueue` thread
+    /// *is* allowed to block, so we hop there and bridge back with a checked
+    /// continuation. The closure is `@Sendable` and returns a `Sendable` value, so
+    /// the hand-off across the queue boundary is data-race-free.
+    private nonisolated static func runBlocking<T: Sendable>(
+        _ work: @escaping @Sendable () throws -> T
+    ) async -> Result<T, Error> {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: Result { try work() })
+            }
         }
     }
 
