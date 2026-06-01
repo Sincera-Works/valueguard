@@ -3,6 +3,36 @@
 State-changing actions (build changes, signing swaps, policy revisions, model
 upgrades). Newest first.
 
+## 2026-06-01 — One-click install (no CLI) + product direction
+
+Built the non-CLI install path so a user can click a button on the web directory
+and have a config policy land in ValueGuard's settings. App side reuses the
+`ValueGuardMarketplace` library — **no daemon changes**. Stacked on the
+prototype branch; PR [#14](https://github.com/Sincera-Works/valueguard/pull/14)
+(base `feat/marketplace-prototype`).
+
+- **`vgconfig://` URL scheme** registered in the app; `AppDelegate.application(_:open:)`
+  parses `vgconfig://install?registry=<base>&ref=<author>/<slug>[@version]`.
+- **`ConfigInstallCoordinator`** + a **Configs settings tab** (install/activate/
+  uninstall, installed list, live-registry link). Install shows a
+  **trust-confirmation sheet** with the author key fingerprint (TOFU) + verified
+  state + categories — a `vgconfig://` link never silently swaps the filter.
+- **Copy-on-activate bridge**: the daemon reads one flat `policy.bin`; activating
+  a config copies its `policy.bin` to that path and restarts the daemon. Spec §6's
+  symlink + SIGUSR1 hot-reload is the clean follow-up.
+- **Web**: per-card "Install in ValueGuard" button (registry base from the page's
+  own origin); copy-CLI kept as fallback.
+- Build-verified: `xcodegen` + `xcodebuild` (Debug/macOS) → BUILD SUCCEEDED, zero
+  errors; site rebuilds clean. **Not yet redeployed** (web button not live until
+  a `wrangler pages deploy`).
+
+**Product direction set (2026-06-01):** marketplace should let authors **tip /
+charge**. Decision: **author-hosted checkout links** (Stripe/Ko-fi/Gumroad —
+registry stays static, we hold no money/cards/tax), app distributed as a
+**direct-download notarized DMG** (no Apple IAP cut). True pay-before-download
+gating would need the deferred P1 backend + merchant-of-record/tax handling —
+out of scope. Tips/links phase **not started**; one-click install was built first.
+
 ## 2026-05-31 — Marketplace prototype (static-registry cut)
 
 Built a working marketplace prototype on top of the done P0 (bundle format,
