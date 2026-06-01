@@ -6,17 +6,23 @@ final class SettingsWindow {
     private var window: NSWindow?
     private let settings: AppSettings
     private let actionOverrides: ActionOverrides
+    /// Shared marketplace coordinator — the same instance the `vgconfig://` URL
+    /// open drives, so presenting the window after a URL open shows the pending
+    /// confirmation sheet.
+    private let configCoordinator: ConfigInstallCoordinator
     private let onRestartDaemon: () -> Void
     private let onReopenOnboarding: () -> Void
 
     init(
         settings: AppSettings,
         actionOverrides: ActionOverrides,
+        configCoordinator: ConfigInstallCoordinator,
         onRestartDaemon: @escaping () -> Void,
         onReopenOnboarding: @escaping () -> Void
     ) {
         self.settings = settings
         self.actionOverrides = actionOverrides
+        self.configCoordinator = configCoordinator
         self.onRestartDaemon = onRestartDaemon
         self.onReopenOnboarding = onReopenOnboarding
     }
@@ -30,6 +36,7 @@ final class SettingsWindow {
         let view = SettingsView(
             settings: settings,
             actionOverrides: actionOverrides,
+            configCoordinator: configCoordinator,
             onRestartDaemon: onRestartDaemon,
             onReopenOnboarding: onReopenOnboarding
         )

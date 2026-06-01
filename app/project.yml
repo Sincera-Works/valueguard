@@ -45,6 +45,8 @@ targets:
     dependencies:
       - package: ValueGuard
         product: ValueGuardCore
+      - package: ValueGuard
+        product: ValueGuardMarketplace
       - package: swift-transformers
         product: Transformers
     info:
@@ -58,3 +60,11 @@ targets:
         NSScreenCaptureUsageDescription: ValueGuard analyzes on-screen content locally to filter what you have asked to filter. No frame data leaves your machine.
         NSHumanReadableCopyright: "© 2026 Sincera Works"
         LSMinimumSystemVersion: "14.0"
+        # One-click install: the web directory's "Install" button opens a
+        # vgconfig:// URL, which macOS routes to this app via this scheme.
+        # XcodeGen folds info.properties into the generated Info.plist, so this
+        # is the source of truth (Resources/Info.plist is regenerated).
+        CFBundleURLTypes:
+          - CFBundleURLName: works.sincera.valueguard.config
+            CFBundleURLSchemes:
+              - vgconfig
