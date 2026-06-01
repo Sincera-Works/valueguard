@@ -1,0 +1,81 @@
+name: LSS Process Map
+
+# Lean Six Sigma process-map maintainer. On every same-repo PR, Claude decides
+# whether the diff changes the PROJECT'S PROCESS (a hand-off, gate, workflow,
+# deploy/runtime step, data flow) — not just code — and if so updates the
+# repo-local docs/process-map.md, then posts exactly one PR comment framing the
+# change in LSS / DOWNTIME-waste terms. Never silent: a green check means a
+# real process review happened.
+#
+# Auth: the Claude GitHub App (OAuth). The app must be installed on this repo
+# and a CLAUDE_CODE_OAUTH_TOKEN repository secret must exist. The allowedTools
+# list is load-bearing — without the write/comment tools the job goes green but
+# Claude hits permission denials and changes nothing.
+#
+# Boundary: docs/process-map.md is a REPO-LOCAL projection. The wiki page named
+# in its Authoritative pointer is canonical; the weekly LSS sweep reconciles
+# this file UP into that wiki page. The Action never reaches the wiki (no remote).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  lss-process-map:
+    # Fork PRs can't be granted write secrets; skip them so the job doesn't
+    # go green having silently done nothing.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: LSS process-map maintainer
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are the Lean Six Sigma (LSS) process-map maintainer for this
+            repository: ValueGuard — a Swift/macOS app plus an SPM daemon
+            library (on-device content filtering; menubar app + marketplace).
+
+            Step 1 — Read the PR diff with `gh pr diff` (and `gh pr view` for
+            title/description). Inspect changed files with Read/Grep/Glob as
+            needed. For this macOS app + daemon, weight changes to the
+            app<->daemon IPC boundary, the marketplace registry pack/sign/verify
+            flow, install/update steps, content-filter decision points, and code
+            signing / notarization config most heavily as process-affecting.
+
+            Step 2 — Decide: does this PR change the PROJECT'S PROCESS — a
+            hand-off between people or systems, a gate or approval, a workflow
+            or pipeline stage, a deploy/runtime step, or a data flow — or is it
+            purely internal code with no process impact? Be conservative: a
+            refactor that preserves behavior is NOT a process change.
+
+            Step 3 — If (and only if) it changes the process, update
+            docs/process-map.md with Edit/Write. Keep the existing wiki
+            process-map format and PRESERVE the "Authoritative: ~/wiki/
+            valueguard-process-map.md" pointer line verbatim — that file is the
+            canonical map and this repo-local file is only a projection the
+            weekly sweep reconciles upward. Update the mermaid block and any
+            DOWNTIME-waste annotations to reflect the new/changed step. Do not
+            duplicate durable facts the wiki owns; reference them via [[page]].
+
+            Step 4 — ALWAYS finish by posting exactly one comment with
+            `gh pr comment`, framing the process impact in LSS terms: which of
+            the 8 DOWNTIME wastes (Defects, Overproduction, Waiting, Non-utilized
+            talent, Transportation, Inventory, Motion, Extra-processing) this PR
+            ADDS or REMOVES, and any new or changed hand-off friction. If there
+            is NO process impact, say so explicitly in the comment and do not
+            edit docs/process-map.md. The review must never be silent.
+
+            Use the inline-comment tool for any specific line-level process notes.
+          claude_args: |
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),mcp__github_inline_comment__create_inline_comment"
+            --max-turns 40
