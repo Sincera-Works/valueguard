@@ -162,9 +162,18 @@ struct ConfigsView: View {
     }
 
     private func activate(_ config: InstalledConfig) {
-        // The coordinator surfaces any failure via its `.failed` state (rendered
-        // in the status banner); the thrown error is swallowed here.
-        Task { try? await coordinator.activate(author: config.author, slug: config.slug) }
+        // The coordinator's copy-on-activate path surfaces failures via its
+        // `.failed` state (rendered in the status banner). The pre-flight busy
+        // guard, however, throws *before* setting any state, so catch that here
+        // and surface it too — otherwise a rejected activation is silent (the bug
+        // that made an install→activate appear to "do nothing").
+        Task {
+            do {
+                try await coordinator.activate(author: config.author, slug: config.slug)
+            } catch {
+                coordinator.reportFailure(error)
+            }
+        }
     }
 
     private func uninstall(_ config: InstalledConfig) {

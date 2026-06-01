@@ -336,6 +336,13 @@ final class ConfigInstallCoordinator: ObservableObject {
         state = .idle
     }
 
+    /// Surface an error in the status banner. Used by view-side handlers that
+    /// catch a throw which happened *before* the coordinator could set `.failed`
+    /// itself (e.g. the activate pre-flight busy guard) — so no failure is silent.
+    func reportFailure(_ error: Error) {
+        state = .failed(message: Self.message(for: error))
+    }
+
     // MARK: - List
 
     /// Refresh ``installedConfigs`` from `Installer.list()` (the lockfile is the
@@ -374,9 +381,13 @@ final class ConfigInstallCoordinator: ObservableObject {
         // Reentrancy guard: two rapid Activate clicks (or a programmatic caller)
         // must not run concurrent `Installer.activate` calls — they write the
         // same `lockfile.json` with no cross-process lock and could corrupt it or
-        // leave the wrong config marked active. Only start from idle; transition
-        // to a busy state across the await so the UI disables the buttons.
-        guard case .idle = state else {
+        // leave the wrong config marked active. Block only while genuinely BUSY
+        // (resolving/installing/activating/awaiting-confirm) — NOT from a terminal
+        // state. The common flow is install → state `.installed(ref:)` → Activate,
+        // so requiring `.idle` here would (and did) silently reject the very next
+        // click. Transition to `.activating` across the await so the UI disables
+        // the buttons during the operation.
+        guard !isBusy else {
             throw VGError.io("can't activate while another operation is in progress")
         }
         state = .activating
