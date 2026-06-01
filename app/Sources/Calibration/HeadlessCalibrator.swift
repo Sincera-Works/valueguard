@@ -27,9 +27,26 @@ final class HeadlessCalibrator {
         case noNegatives
     }
 
+    /// How the positive-side score distribution was obtained. Drives the UI's
+    /// labeling so a successful caption-anchored fit isn't presented as the
+    /// old "0 positives" failure.
+    enum PositiveSource: Equatable {
+        /// Positive sample images were fetched and scored (the normal path).
+        case images
+        /// No positive images exist in the calibration source, so the
+        /// category's `positive_captions` were re-embedded on-device through
+        /// the SigLIP-2 text encoder and scored against `posVec`. No images,
+        /// no network.
+        case captionAnchored
+        /// Neither images nor captions yielded any positive scores (e.g. the
+        /// category has no positive captions — shouldn't normally happen).
+        case none
+    }
+
     struct Result {
         let positiveScores: [Float]
         let negativeScores: [Float]
+        let positiveSource: PositiveSource
         let suggestedThreshold: Float
         let separability: Separability
         let p05Pos: Float?
@@ -91,7 +108,7 @@ final class HeadlessCalibrator {
         let exclusions = ValuesExclusionExtractor.extract(from: valuesText)
         negativeQueries.append(contentsOf: exclusions)
 
-        let posScores = try await scoreCorpus(
+        let imagePosScores = try await scoreCorpus(
             label: "positives",
             queries: positiveQueries,
             classifier: classifier,
@@ -108,13 +125,95 @@ final class HeadlessCalibrator {
             onProgress: onProgress
         )
 
+        // Caption-anchored fallback. For EXPLICIT categories the moderated
+        // calibration source returns ZERO positive images by design (it never
+        // hosts the content), so `imagePosScores` is empty and the Bayesian
+        // fit would be meaningless. Rather than fetch positives from an
+        // unmoderated source (a hard threat-model line we will not cross), we
+        // synthesize the positive distribution entirely on-device: re-embed
+        // the author's `positive_captions` through the SigLIP-2 TEXT encoder
+        // the app already ships, and score each caption embedding against
+        // `posVec` the SAME way images are scored (dot product). Because both
+        // the caption embeddings and `posVec` are L2-normalized, this is
+        // cosine similarity — on the same scale as the image flow's numbers.
+        //
+        // Note for future readers: text-vs-text cosine sits HIGHER than
+        // image-vs-text cosine, so these anchors land above the negative image
+        // cloud. That is intended — they bound the false-positive gap on
+        // benign content; recall is anchored to the author's captions. Do NOT
+        // rescale them.
+        let posScores: [Float]
+        let positiveSource: PositiveSource
+        if !imagePosScores.isEmpty {
+            posScores = imagePosScores
+            positiveSource = .images
+        } else {
+            let anchored = try await captionAnchoredPositives(
+                captions: category.positive_captions,
+                posVec: posVec,
+                onProgress: onProgress
+            )
+            if anchored.isEmpty {
+                // Both image fetch and caption re-embedding came up empty
+                // (e.g. the category has no positive captions). Keep the
+                // honest "no positives" state.
+                posScores = []
+                positiveSource = .none
+            } else {
+                posScores = anchored
+                positiveSource = .captionAnchored
+            }
+        }
+
         return makeResult(
             posScores: posScores,
             negScores: negScores,
+            positiveSource: positiveSource,
             prior: prior,
             costRatio: costRatio,
             conformalAlpha: conformalAlpha
         )
+    }
+
+    /// Re-embed the category's positive captions on-device and score each
+    /// against `posVec`, producing a synthetic positive-score distribution
+    /// when no positive images can be (safely) fetched.
+    ///
+    /// Each caption is tokenized + run through the bundled SigLIP-2 text
+    /// encoder (`SigLIP2Text.mlpackage`) and L2-normalized — one point per
+    /// caption, in the same unit-sphere space images are embedded into. The
+    /// score is `dot(captionEmb, posVec)`, identical to how `scoreCorpus`
+    /// scores a fetched image embedding, so the two corpora live on one scale.
+    ///
+    /// Construction mirrors `PolicyPipeline.compile`: the tokenizer/encoder are
+    /// `@MainActor`-isolated CoreML objects, so the encode runs inside
+    /// `MainActor.run` on a detached task. Returns `[]` if there are no
+    /// captions to embed.
+    private func captionAnchoredPositives(
+        captions: [String],
+        posVec: [Float],
+        onProgress: @escaping (Progress) -> Void
+    ) async throws -> [Float] {
+        guard !captions.isEmpty else { return [] }
+        onProgress(.init(stage: "No positive images available — embedding captions on-device",
+                         current: 0, total: captions.count))
+
+        let tokenizer = try PolicyTokenizer()
+        let encoder = try TextEncoder()
+        let embedder = CaptionEmbedder(tokenizer: tokenizer, encoder: encoder)
+
+        let captionEmbeddings = try await Task.detached(priority: .userInitiated) {
+            try await MainActor.run { try embedder.embedEach(captions: captions) }
+        }.value
+
+        var scores: [Float] = []
+        scores.reserveCapacity(captionEmbeddings.count)
+        for (i, emb) in captionEmbeddings.enumerated() {
+            onProgress(.init(stage: "Scoring caption anchor", current: i + 1, total: captionEmbeddings.count))
+            let score = zip(emb, posVec).reduce(Float(0)) { $0 + $1.0 * $1.1 }
+            scores.append(score)
+        }
+        return scores
     }
 
     private func scoreCorpus(
@@ -155,6 +254,7 @@ final class HeadlessCalibrator {
     private func makeResult(
         posScores: [Float],
         negScores: [Float],
+        positiveSource: PositiveSource,
         prior: Double,
         costRatio: Double,
         conformalAlpha: Double
@@ -196,6 +296,7 @@ final class HeadlessCalibrator {
         return Result(
             positiveScores: posScores,
             negativeScores: negScores,
+            positiveSource: positiveSource,
             suggestedThreshold: recommended,
             separability: separability,
             p05Pos: p05Pos,
