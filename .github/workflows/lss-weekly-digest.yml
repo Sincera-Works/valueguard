@@ -1,0 +1,94 @@
+name: LSS Weekly Digest
+
+# Lean Six Sigma weekly process-map digest. Complements lss-process-map.yml:
+# that workflow reacts to each PR immediately; this one runs weekly to catch
+# DRIFT — process changes that landed across the week without a single diff
+# obviously announcing them — and to summarize the week in LSS terms.
+#
+# Unlike the per-PR job, this one is allowed to OPEN a PR: it works on a NEW
+# branch (lss-digest/<date>) and never edits main directly. The PR is the
+# review gate. If the week introduced no real process change, it opens nothing.
+#
+# Auth: the Claude GitHub App (OAuth). The app must be installed on this repo
+# and a CLAUDE_CODE_OAUTH_TOKEN repository secret must exist. The allowedTools
+# list is load-bearing — without the write/branch/PR tools the job goes green
+# but Claude hits permission denials and changes nothing.
+#
+# Boundary: docs/process-map.md is a REPO-LOCAL projection. The wiki page named
+# in its Authoritative pointer is canonical; the weekly LSS sweep reconciles
+# this file UP into that wiki page. The Action never reaches the wiki (no remote).
+
+on:
+  # Monday 06:00 America/Los_Angeles. GitHub cron is always UTC, so 06:00 PT
+  # is expressed as 14:00 UTC (PDT, UTC-7; ~07:00 PST during standard time).
+  schedule:
+    - cron: "0 14 * * 1"
+  # Manual run for ad-hoc digests / testing.
+  workflow_dispatch:
+
+jobs:
+  lss-weekly-digest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: LSS weekly process-map digest
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are the Lean Six Sigma (LSS) weekly process-map digest agent for
+            this repository: ValueGuard — a Swift/macOS app plus an SPM daemon
+            library (on-device content filtering; menubar app + marketplace).
+
+            Step 1 — Inspect the last 7 days of history. Run
+            `git log --since="7 days ago" --oneline` and
+            `gh pr list --state merged --search "merged:>=$(date -d '7 days ago' +%Y-%m-%d)"`
+            (compute the 7-days-ago date for the search). Read the merged PRs
+            and the changed files with Read/Grep/Glob as needed. For this macOS
+            app + daemon, weight changes to the app<->daemon IPC boundary, the
+            marketplace registry pack/sign/verify flow, install/update steps,
+            content-filter decision points, and code signing / notarization
+            config most heavily as process-affecting.
+
+            Step 2 — Decide whether the project's PROCESS changed this week — a
+            hand-off between people or systems, a gate or approval, a workflow
+            or pipeline stage, a deploy/runtime step, or a data flow — versus
+            mere code edits. Be conservative: refactors that preserve behavior
+            are NOT process changes.
+
+            Step 3 — If (and only if) docs/process-map.md is now STALE versus
+            reality, update it on a NEW branch:
+              - `git checkout -b lss-digest/$(date +%Y-%m-%d)`
+              - Edit docs/process-map.md with Edit/Write. Keep the existing wiki
+                process-map format and PRESERVE the
+                "Authoritative: ~/wiki/valueguard-process-map.md" pointer line
+                verbatim — that wiki file is canonical; this repo-local file is
+                only a projection the weekly sweep reconciles upward. Reference
+                durable facts the wiki owns via [[page]] links; do not restate
+                them.
+              - `git add docs/process-map.md`
+              - `git commit -m "LSS weekly process-map digest — $(date +%Y-%m-%d)"`
+              - `git push -u origin lss-digest/$(date +%Y-%m-%d)`
+              - Open a PR with `gh pr create` titled
+                "LSS weekly process-map digest — $(date +%Y-%m-%d)". The body
+                must summarize the week in Lean Six Sigma / DOWNTIME-waste terms:
+                which of the 8 DOWNTIME wastes (Defects, Overproduction,
+                Waiting, Non-utilized talent, Transportation, Inventory, Motion,
+                Extra-processing) the week ADDED or REMOVED, and any new or
+                changed hand-off friction.
+              Never edit main directly — the PR is the review gate.
+
+            Step 4 — If there was NO process change this week, do NOT open a PR
+            and do NOT edit docs/process-map.md. Exit cleanly; you may print a
+            single line "no process drift this week" to the job log.
+          claude_args: |
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git diff:*),Bash(git log:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(gh pr list:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh api:*)"
+            --max-turns 40
