@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import ArgumentParser
 import ValueGuardMarketplace
 
@@ -157,10 +158,16 @@ struct Keygen: ParsableCommand {
         let publicBase64 = keypair.publicRaw.base64EncodedString()
 
         do {
-            // Write the public key world-readable, the private key owner-only.
+            // Write the public key world-readable.
             try Data((publicBase64 + "\n").utf8).write(to: publicURL, options: .atomic)
-            try Data((privateBase64 + "\n").utf8).write(to: privateURL, options: .atomic)
-            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: privateURL.path)
+            // Write the PRIVATE key through a freshly-created 0600 file descriptor.
+            // A `Data.write(.atomic)` + later `chmod 0600` leaves a window where
+            // the seed exists at 0644 (umask) and another process could read it;
+            // creating the fd with mode 0600 up front closes that window.
+            try Self.writePrivateKey(Data((privateBase64 + "\n").utf8), to: privateURL, force: force)
+        } catch let error as VGError {
+            printError("vg: keygen failed: " + (error.errorDescription ?? "\(error)"))
+            throw ExitCode(1)
         } catch {
             printError("vg: keygen failed: could not write key files: \(error)")
             throw ExitCode(1)
@@ -171,6 +178,45 @@ struct Keygen: ParsableCommand {
         print("wrote public key    \(publicURL.path)")
         print("handle              \(handle)")
         print("fingerprint         \(fingerprint)")
+    }
+
+    /// Write the private-key bytes to `url` through a file descriptor created with
+    /// mode `0600`, so the secret is never momentarily world-readable.
+    ///
+    /// Uses `open(2)` with `O_CREAT | O_WRONLY | O_TRUNC` and an explicit `0o600`
+    /// creation mode (the kernel applies the umask, but 0600 & ~umask is still
+    /// 0600 for any normal umask, so the file is owner-only from the instant it
+    /// exists). `O_EXCL` is intentionally NOT used — the caller's `--force` /
+    /// pre-existence check already governs overwrite — but when the file already
+    /// exists we first ensure its mode is tightened. This avoids the
+    /// `Data.write(.atomic)` + later `chmod` window where the seed sits at 0644.
+    static func writePrivateKey(_ data: Data, to url: URL, force: Bool) throws {
+        let path = url.path
+        // If overwriting an existing key, tighten its mode first so the truncate
+        // below never momentarily exposes new bytes under a stale loose mode.
+        if FileManager.default.fileExists(atPath: path) {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        }
+        let fd = path.withCString { open($0, O_CREAT | O_WRONLY | O_TRUNC, 0o600) }
+        guard fd >= 0 else {
+            throw VGError.io("could not create private key at \(path): \(String(cString: strerror(errno)))")
+        }
+        defer { close(fd) }
+        // Belt-and-suspenders: enforce 0600 on the open fd regardless of umask.
+        _ = fchmod(fd, 0o600)
+        try data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+            var off = 0
+            let total = buf.count
+            let base = buf.baseAddress
+            while off < total {
+                let n = write(fd, base?.advanced(by: off), total - off)
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    throw VGError.io("could not write private key at \(path): \(String(cString: strerror(errno)))")
+                }
+                off += n
+            }
+        }
     }
 
     /// Resolve the directory the keypair is written into: the `--out` override when
@@ -376,7 +422,16 @@ struct Verify: ParsableCommand {
     var path: String
 
     func run() throws {
-        let url = RefParser.resolveSource(path)
+        // verify is strictly offline/local: reject any non-file URL so an
+        // `https://…` argument can't be handed to Data(contentsOf:) (a network
+        // fetch). Network/registry sources go through `vg install`.
+        let url: URL
+        do {
+            url = try RefParser.resolveLocalSource(path)
+        } catch let error as VGError {
+            printError("vg: verify failed: " + (error.errorDescription ?? "\(error)"))
+            throw ExitCode(1)
+        }
 
         let report: VerifyReport
         let extractedDir: URL
@@ -464,8 +519,10 @@ struct Install: ParsableCommand {
 
             case .url(let url):
                 // Direct bundle URL: download (sha unknown — verify is the gate).
+                // No registry base is involved; use the static entry point so we
+                // don't construct a client around a misleading bundle-as-base.
                 print("downloading \(url.absoluteString)")
-                let bundle = try RegistryClient(baseURL: url).downloadDirect(url)
+                let bundle = try RegistryClient.downloadDirect(from: url)
                 downloadedTemp = bundle
                 bundleURL = bundle
 

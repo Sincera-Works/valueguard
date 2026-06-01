@@ -196,6 +196,14 @@ public enum Reindexer {
         let version = manifest.version
         let sha = report.bundleSha256
 
+        // Defense-in-depth: these become directory names under the output tree.
+        // ManifestValidator (run inside verify) already blocks path-traversal via
+        // regex, but the reindexer is a producer-side tool that may run over
+        // less-trusted bundle directories — guard here too, mirroring the same
+        // call in Installer.install, so a validator regression can't let a
+        // crafted handle escape the output root.
+        try InstallLayout.assertSafeComponents(author: author, slug: slug, version: version)
+
         // 1. Content-addressed bundle blob: bundles/<sha256>.vgconfig (immutable).
         let blobURL = bundlesOut.appendingPathComponent("\(sha).vgconfig")
         do {
@@ -229,7 +237,7 @@ public enum Reindexer {
         }
 
         // 3. Per-version index entry. Paths are RELATIVE to the registry base.
-        let sizeBytes = (try? fm.attributesOfItem(atPath: blobURL.path)[.size] as? Int) ?? nil
+        let sizeBytes = ((try? fm.attributesOfItem(atPath: blobURL.path)[.size]) as? Int) ?? 0
         let categories = manifest.categories.map {
             RegistryIndex.CategorySummary(id: $0.id, action: $0.action)
         }
@@ -239,7 +247,7 @@ public enum Reindexer {
             bundleSha256: sha,
             bundlePath: "bundles/\(sha).vgconfig",
             manifestPath: "configs/\(author)/\(slug)/\(version)/manifest.json",
-            sizeBytes: sizeBytes ?? 0,
+            sizeBytes: sizeBytes,
             categories: categories
         )
 

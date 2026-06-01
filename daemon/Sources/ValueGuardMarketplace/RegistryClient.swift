@@ -233,6 +233,20 @@ public struct RegistryClient {
         return dest
     }
 
+    /// Download a `.vgconfig` directly from a full bundle URL, with no registry
+    /// base involved.
+    ///
+    /// A direct download needs no `index.json` and no relative-path resolution, so
+    /// it should not require constructing a `RegistryClient` around a (misleading)
+    /// bundle-as-base. This static entry point makes that explicit: callers pass
+    /// only the bundle URL. (Internally it uses a transient client purely for the
+    /// shared transport/timeout; `fetch` never consults the base.)
+    ///
+    /// - Throws: ``VGError/notFound`` / ``VGError/io`` on a transport failure.
+    public static func downloadDirect(from url: URL, timeout: TimeInterval = 60) throws -> URL {
+        try RegistryClient(baseURL: url, timeout: timeout).downloadDirect(url)
+    }
+
     // MARK: - Path resolution
 
     /// Resolve a registry-relative path (e.g. `"index.json"` or

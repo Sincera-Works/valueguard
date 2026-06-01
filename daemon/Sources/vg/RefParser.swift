@@ -121,10 +121,38 @@ enum RefParser {
     /// An argument carrying a URL scheme (`file://`, `http://`, `https://`, …) is
     /// parsed as a URL so percent-encoding is honored; anything else is treated as
     /// a plain filesystem path (relative or absolute). The returned URL is not
-    /// checked for existence here — the caller (the verifier / installer /
-    /// registry client) does that.
+    /// checked for existence here — the caller (the installer / registry client)
+    /// does that.
+    ///
+    /// - Important: This intentionally returns network URLs as-is, so it must only
+    ///   be used where a network fetch is expected (the `install` path, which has
+    ///   first classified the source via ``classifyInstallSource(_:)``). For a
+    ///   strictly-local context such as `vg verify`, use ``resolveLocalSource(_:)``,
+    ///   which refuses non-file schemes — otherwise an `https://` argument would be
+    ///   handed to `Data(contentsOf:)` and trigger a synchronous network fetch.
     static func resolveSource(_ s: String) -> URL {
         if s.contains("://"), let url = URL(string: s) {
+            return url
+        }
+        return URL(fileURLWithPath: s)
+    }
+
+    /// Resolve a strictly-local source argument (bare path or `file://` URL) to a
+    /// file URL, rejecting any other scheme.
+    ///
+    /// `vg verify` operates only on a local `.vgconfig`; it must never be coaxed
+    /// into a network fetch. A `file://` URL is honored (percent-decoding
+    /// preserved); a bare path becomes a file URL; any `scheme://` other than
+    /// `file` is rejected.
+    ///
+    /// - Throws: ``VGError/notFound`` for a non-file URL scheme.
+    static func resolveLocalSource(_ s: String) throws -> URL {
+        if s.contains("://") {
+            guard let url = URL(string: s), url.isFileURL else {
+                throw VGError.notFound(
+                    "expected a local path or file:// URL, got '\(s)'. "
+                    + "To install from a registry or URL use 'vg install'.")
+            }
             return url
         }
         return URL(fileURLWithPath: s)
