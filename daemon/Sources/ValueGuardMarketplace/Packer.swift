@@ -412,8 +412,19 @@ public enum Packer {
                 if relative == "signatures" { enumerator.skipDescendants() }
                 continue
             }
-            let values = try? fileURL.resourceValues(forKeys: Set(keys))
-            if values?.isRegularFile == true {
+            // Stat the entry loudly: a `try?` here would turn a transient failure
+            // (e.g. the entry vanishing between enumeration and stat) into a
+            // SILENT exclusion from the digest — the bundle would pack fine but
+            // fail self-verify with a misleading "signature invalid". Surface it.
+            let values: URLResourceValues
+            do {
+                values = try fileURL.resourceValues(forKeys: Set(keys))
+            } catch {
+                throw VGError.io(
+                    "could not stat staged file '\(relative)' while building the manifest digest: "
+                    + error.localizedDescription)
+            }
+            if values.isRegularFile == true {
                 relPaths.append(relative)
             }
         }

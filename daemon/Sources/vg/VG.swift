@@ -192,12 +192,19 @@ struct Keygen: ParsableCommand {
     /// `Data.write(.atomic)` + later `chmod` window where the seed sits at 0644.
     static func writePrivateKey(_ data: Data, to url: URL, force: Bool) throws {
         let path = url.path
-        // If overwriting an existing key, tighten its mode first so the truncate
-        // below never momentarily exposes new bytes under a stale loose mode.
+        // Remove any existing file, then create brand-new with O_EXCL | 0600. This
+        // avoids O_TRUNC ever operating on a file at a stale, looser mode (the
+        // window the prior tighten-then-truncate approach left if setAttributes
+        // failed). The caller's --force / pre-existence check already governs
+        // whether overwriting is permitted, so removing here is safe.
         if FileManager.default.fileExists(atPath: path) {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+            do {
+                try FileManager.default.removeItem(atPath: path)
+            } catch {
+                throw VGError.io("could not replace existing private key at \(path): \(error.localizedDescription)")
+            }
         }
-        let fd = path.withCString { open($0, O_CREAT | O_WRONLY | O_TRUNC, 0o600) }
+        let fd = path.withCString { open($0, O_CREAT | O_EXCL | O_WRONLY, 0o600) }
         guard fd >= 0 else {
             throw VGError.io("could not create private key at \(path): \(String(cString: strerror(errno)))")
         }

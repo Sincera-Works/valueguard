@@ -237,7 +237,17 @@ public enum Reindexer {
         }
 
         // 3. Per-version index entry. Paths are RELATIVE to the registry base.
-        let sizeBytes = ((try? fm.attributesOfItem(atPath: blobURL.path)[.size]) as? Int) ?? 0
+        // The blob was just copied to blobURL above, so a stat failure here is
+        // genuinely unexpected — throw loudly rather than silently writing a
+        // misleading "size_bytes": 0 into the index (clients may use it for
+        // progress display or pre-flight size checks).
+        let blobAttrs: [FileAttributeKey: Any]
+        do {
+            blobAttrs = try fm.attributesOfItem(atPath: blobURL.path)
+        } catch {
+            throw VGError.io("could not stat bundle blob at \(blobURL.path): \(error.localizedDescription)")
+        }
+        let sizeBytes = (blobAttrs[.size] as? Int) ?? 0
         let categories = manifest.categories.map {
             RegistryIndex.CategorySummary(id: $0.id, action: $0.action)
         }
