@@ -3,6 +3,9 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var settings: AppSettings
     @Bindable var actionOverrides: ActionOverrides
+    /// Shared marketplace coordinator (also driven by the `vgconfig://` URL open
+    /// in `AppDelegate`); powers the Configs tab.
+    @ObservedObject var configCoordinator: ConfigInstallCoordinator
     var onRestartDaemon: () -> Void
     var onReopenOnboarding: () -> Void
 
@@ -10,6 +13,8 @@ struct SettingsView: View {
         TabView {
             generalTab.tabItem { Label("General", systemImage: "gear") }
             policyTab.tabItem { Label("Policy", systemImage: "doc.text") }
+            ConfigsView(coordinator: configCoordinator)
+                .tabItem { Label("Configs", systemImage: "square.and.arrow.down.on.square") }
             ActionsView(overrides: actionOverrides)
                 .tabItem { Label("Actions", systemImage: "bolt.shield") }
             CalibrationView(onRestartDaemon: onRestartDaemon)

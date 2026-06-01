@@ -153,8 +153,24 @@
     padding: 2px 7px;
   }
 
-  /* ---- Install row ---- */
-  .install { margin: 16px 0 0; display: flex; gap: 8px; align-items: stretch; }
+  /* ---- One-click install (primary) ---- */
+  .install-app {
+    margin: 16px 0 0; display: flex; align-items: center; justify-content: center; gap: 8px;
+    background: var(--accent); color: #06231f;
+    border: 1px solid var(--accent);
+    border-radius: 8px; padding: 10px 14px;
+    font-size: 0.9rem; font-weight: 700; font-family: var(--sans);
+    text-decoration: none; cursor: pointer;
+    transition: filter .15s ease, transform .05s ease;
+  }
+  .install-app:hover { filter: brightness(1.08); text-decoration: none; }
+  .install-app:active { transform: translateY(1px); }
+  .install-app svg { width: 16px; height: 16px; }
+
+  .install-hint { margin: 7px 0 0; font-size: 0.74rem; color: var(--fg-dim); text-align: center; }
+
+  /* ---- Install row (CLI fallback) ---- */
+  .install { margin: 8px 0 0; display: flex; gap: 8px; align-items: stretch; }
   .install code {
     flex: 1; min-width: 0;
     background: var(--bg); border: 1px solid var(--border);
@@ -309,6 +325,7 @@
   var ICON_COPY  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>';
   var ICON_SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>';
   var ICON_CHEV   = '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>';
+  var ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>';
 
   var el = {
     grid:      document.getElementById("grid"),
@@ -359,6 +376,23 @@
     return (a === "block" || a === "blur" || a === "log") ? a : "log";
   }
 
+  // The registry base this page was served from: its own directory URL (the
+  // page lives at the registry root alongside index.json + bundles/). The app's
+  // RegistryClient resolves the ref against this same base, so one-click install
+  // works against whatever origin is hosting the page (Pages, a preview, local).
+  function registryBase() {
+    var href = window.location.href.split("#")[0].split("?")[0];
+    // Drop a trailing filename (e.g. index.html) so we keep the directory.
+    return href.replace(/[^\/]*$/, "");
+  }
+
+  // The vgconfig:// deep link the ValueGuard app handles:
+  //   vgconfig://install?registry=<base>&ref=<author>/<slug>
+  function vgconfigURL(c) {
+    return "vgconfig://install?registry=" + encodeURIComponent(registryBase()) +
+           "&ref=" + encodeURIComponent(text(c.author) + "/" + text(c.slug));
+  }
+
   // ---------- card rendering ----------
   function renderVersions(versions) {
     if (!Array.isArray(versions) || versions.length === 0) return "";
@@ -393,6 +427,7 @@
     var latest = versions[0] || {};
     var latestCats = Array.isArray(latest.categories) ? latest.categories : [];
     var installCmd = "vg install " + text(c.author) + "/" + text(c.slug);
+    var appURL = vgconfigURL(c);
 
     var verifiedBadge = c.verified
       ? '<span class="badge verified" title="Author key verified by the registry">' + ICON_SHIELD + 'verified</span>'
@@ -424,10 +459,13 @@
         '<span><b>size</b> <span class="mono">' + fmtBytes(latest.size_bytes) + '</span></span>' +
       '</div>' +
       chips +
+      '<a class="install-app" href="' + escapeHtml(appURL) + '">' + ICON_DOWNLOAD +
+        '<span>Install in ValueGuard</span></a>' +
       '<div class="install">' +
         '<code>' + escapeHtml(installCmd) + '</code>' +
         '<button class="copy-btn" type="button">' + ICON_COPY + '<span class="lbl">Copy</span></button>' +
       '</div>' +
+      '<div class="install-hint">Requires the ValueGuard app. No app? Copy the command above.</div>' +
       '<details class="details">' +
         '<summary>' + ICON_CHEV + 'Versions &amp; categories (' + versions.length + ')</summary>' +
         '<div class="ver-list">' + renderVersions(versions) + '</div>' +
