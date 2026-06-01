@@ -14,7 +14,15 @@ page. All in `daemon/` + new `registry-site/`. **40 tests pass.**
   (assemble + sign a `.vgconfig` from `policy.bin`/`policy.json`), backed by a
   new public `Packer` in the library (the pack/sign logic that previously lived
   only in the test `FixtureBuilder`, now shared). Real bundle packed:
-  `sincera/personal-values@1.0.0`, sha256 `1bff3efe…`.
+  `sincera/personal-values@1.0.0`, content-address sha256 `3bd8e797…`, with
+  **genuine** `model_ref` digests — `weights_sha256` is the real HF safetensors
+  oid for `google/siglip2-base-patch16-256`
+  (`6125cacc01fa93bdc98a0c5101cefcd69b2ed1f8ab4f38d86f4ad5984f5dc863`) and
+  `coreml_package_sha256` is a reproducible tree-hash of the local
+  `SigLIP2Vision.mlpackage` (sha256 of the sorted per-file sha256 listing,
+  `4848b789…`). The durable `sincera` signing key lives at
+  `~/Library/Application Support/ValueGuard/keys/sincera.key` (reuse it to
+  republish under the same author fingerprint — TOFU continuity).
 - **Registry.** `vg reindex --bundles <dir> --out <registry-dir>` generates a
   static tree: `index.json` + content-addressed `bundles/<sha>.vgconfig` +
   extracted `configs/<a>/<s>/<v>/manifest.json`+`calibration.json`. New
@@ -45,6 +53,10 @@ page. All in `daemon/` + new `registry-site/`. **40 tests pass.**
   `wrangler pages deploy registry-site/dist` after the maintainer ran `wrangler
   login` (the OAuth token now carries `pages:write` + resolvable account ID).
   Redeploy = `registry-site/build-site.sh` then the same deploy command.
+- **Committed + PR.** Branch `feat/marketplace-prototype`, PR
+  [#13](https://github.com/Sincera-Works/valueguard/pull/13) (21 files, ~3.6k
+  insertions; `AGENTS.md` and `.wrangler/` excluded, the latter now gitignored).
+  `claude-review` CI running.
 
 Build note: the repo relocation left a stale `.build/ModuleCache` referencing
 `~/projects/valueguard`; if "compiled with module cache path" errors appear,
