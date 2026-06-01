@@ -7,6 +7,9 @@ final class MenubarController: NSObject {
     private let openOnboarding: () -> Void
     private let openSettings: () -> Void
     private let onEmergencyDismiss: () -> Void
+    /// Triggers a user-initiated Sparkle update check (standard UI). Injected so
+    /// the menubar stays decoupled from the updater; see `UpdaterController`.
+    private let checkForUpdates: () -> Void
     private var pauseItem: NSMenuItem?
     /// Disabled menu item that surfaces *why* filtering isn't running. Hidden
     /// unless the daemon is in a `.failed` state (or we're mid-relaunch).
@@ -18,12 +21,14 @@ final class MenubarController: NSObject {
         host: DaemonHost,
         openOnboarding: @escaping () -> Void,
         openSettings: @escaping () -> Void,
-        onEmergencyDismiss: @escaping () -> Void
+        onEmergencyDismiss: @escaping () -> Void,
+        checkForUpdates: @escaping () -> Void
     ) {
         self.host = host
         self.openOnboarding = openOnboarding
         self.openSettings = openSettings
         self.onEmergencyDismiss = onEmergencyDismiss
+        self.checkForUpdates = checkForUpdates
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         buildMenu()
@@ -116,6 +121,13 @@ final class MenubarController: NSObject {
         editValues.target = self
         menu.addItem(editValues)
 
+        // Sits in the Settings/Quit region. Routes to the injected Sparkle
+        // closure (see UpdaterController); target = self so the @objc action
+        // resolves on this controller rather than the (absent) responder chain.
+        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdatesAction), keyEquivalent: "")
+        updates.target = self
+        menu.addItem(updates)
+
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(presentSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -184,5 +196,9 @@ final class MenubarController: NSObject {
 
     @objc private func presentSettings() {
         openSettings()
+    }
+
+    @objc private func checkForUpdatesAction() {
+        checkForUpdates()
     }
 }

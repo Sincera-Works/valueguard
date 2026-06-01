@@ -25,6 +25,14 @@ packages:
   swift-transformers:
     url: https://github.com/huggingface/swift-transformers
     from: "0.1.13"
+  # Sparkle 2.x — the auto-updater. Direct-download notarized DMG distribution
+  # (NOT App Store), so Sparkle is the correct, allowed mechanism. SPM resolves
+  # the Sparkle.framework plus the bundled `generate_keys`/`sign_update` CLI
+  # tools (used at release time — see scripts/package-release.sh) into the
+  # resolved artifact under DerivedData/.../SourcePackages/artifacts/sparkle/.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
 
 targets:
   ValueGuardApp:
@@ -49,6 +57,8 @@ targets:
         product: ValueGuardMarketplace
       - package: swift-transformers
         product: Transformers
+      - package: Sparkle
+        product: Sparkle
     info:
       path: Resources/Info.plist
       properties:
@@ -60,6 +70,21 @@ targets:
         NSScreenCaptureUsageDescription: ValueGuard analyzes on-screen content locally to filter what you have asked to filter. No frame data leaves your machine.
         NSHumanReadableCopyright: "© 2026 Sincera Works"
         LSMinimumSystemVersion: "14.0"
+        # --- Sparkle auto-updater (deliverable: feat/sparkle-autoupdate) ---
+        # Single source of truth for the appcast feed. Hosted on Cloudflare Pages
+        # next to the config registry; repoint here (and re-sign/re-deploy the
+        # appcast) if the feed ever moves.
+        SUFeedURL: https://valueguard-configs.pages.dev/appcast.xml
+        # Background checks on (with the user able to decline on first prompt),
+        # once per day.
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
+        # EdDSA (ed25519) public key Sparkle uses to verify update signatures.
+        # The matching private key lives only in the login Keychain (created by
+        # Sparkle's `generate_keys` on 2026-06-01) and is used by `sign_update` at
+        # release time — it is never on disk or in the repo. This public key MUST
+        # match the key that signs the DMGs referenced by appcast.xml.
+        SUPublicEDKey: BH+f4puEMMO7PLphkpRDGFFp+xTK7UPxfPYpaakZtL0=
         # One-click install: the web directory's "Install" button opens a
         # vgconfig:// URL, which macOS routes to this app via this scheme.
         # XcodeGen folds info.properties into the generated Info.plist, so this

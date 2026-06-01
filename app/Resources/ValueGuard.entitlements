@@ -2,6 +2,33 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+	  Sparkle 2.x auto-updater — entitlement finding (feat/sparkle-autoupdate):
+
+	  NO additional entitlements are required for Sparkle here.
+
+	  The app is intentionally NON-sandboxed (app-sandbox = false below) and runs
+	  under the hardened runtime (ENABLE_HARDENED_RUNTIME: YES in project.yml).
+	  Per Sparkle's "Sandboxing with Sparkle" documentation
+	  (https://sparkle-project.org/documentation/sandboxing/), the extra
+	  entitlements — com.apple.security.temporary-exception.mach-lookup for the
+	  org.sparkle-project.Downloader / .Installer XPC services, and the
+	  com.apple.security.app-sandbox/network entries on those bundled services —
+	  are ONLY needed when the *host app* is sandboxed. For a non-sandboxed app,
+	  Sparkle's installer runs via its own bundled, code-signed XPC service /
+	  launchd-installed helper (shipped and signed inside Sparkle.framework as part
+	  of the app bundle), which the hardened runtime already permits for a process
+	  with valid Developer ID signatures. No sandbox temporary-exception, no
+	  disable-library-validation, and no extra inherit/IPC entitlements are needed.
+
+	  Deliberately NOT adding sandbox entitlements: the app is non-sandboxed by
+	  design (it must capture the screen and run on-device inference). Adding the
+	  sandbox would break that and is unnecessary for Sparkle.
+
+	  Requirement that lives elsewhere, not an entitlement: every update DMG must
+	  be EdDSA-signed (sign_update) and notarized, and SUPublicEDKey in Info.plist
+	  must match the signing key. See scripts/package-release.sh.
+	-->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
 	<key>com.apple.security.network.client</key>
