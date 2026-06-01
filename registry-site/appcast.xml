@@ -5,19 +5,19 @@
         <description>ValueGuard app updates</description>
         <language>en</language>
         <item>
-            <title>0.2.0</title>
+            <title>0.3.0</title>
             <description><![CDATA[
                 <ul>
-                  <li>One-click install: click <b>Install in ValueGuard</b> on the config directory and a policy downloads, verifies, and appears in the new <b>Configs</b> settings tab — no terminal.</li>
+                  <li><b>Auto-update</b>: from this version on, ValueGuard updates itself (this is the first build with the updater).</li>
+                  <li>One-click install: click <b>Install in ValueGuard</b> on the config directory and a policy downloads, verifies, and appears in the <b>Configs</b> settings tab — no terminal.</li>
                   <li>vgconfig:// URL scheme + trust-confirmation sheet (author key fingerprint, registry origin, categories, offline-verified badge).</li>
-                  <li>Auto-update support (this build and later update automatically).</li>
                 </ul>
             ]]></description>
-            <pubDate>Mon, 01 Jun 2026 11:52:13 -0700</pubDate>
-            <sparkle:version>2</sparkle:version>
-            <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+            <pubDate>Mon, 01 Jun 2026 12:14:30 -0700</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/Sincera-Works/valueguard/releases/download/app-v0.2.0/ValueGuard.dmg" sparkle:edSignature="w4WJZ0HrULaChgJGvzzMo5K2Zun7rgOcwWZKvg4+dz5vpsAdQXTBgY/b7LOFpiD6U07WM8bFbYYjcoH5woI5Cg==" length="92394027" type="application/octet-stream"/>
+            <enclosure url="https://github.com/Sincera-Works/valueguard/releases/download/app-v0.3.0/ValueGuard.dmg" length="93030914" type="application/octet-stream" sparkle:edSignature="eelNdM6mjF4ZTBfPfOIH0BDTODpmh8AzX/wYgM4sCZ0HJzC7oUlLpQCkYPeB0FQiIg5094kONUgjqDeXyOyOCg=="/>
         </item>
     </channel>
 </rss>
