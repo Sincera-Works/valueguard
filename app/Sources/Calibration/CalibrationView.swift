@@ -181,8 +181,12 @@ struct CalibrationView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("\(r.positiveScores.count) positive samples, \(r.negativeScores.count) negative samples")
+                Text(positiveCountSummary(r))
                     .font(.headline)
+            }
+
+            if r.positiveSource == .captionAnchored {
+                captionAnchoredBanner
             }
 
             separabilityBanner(r.separability)
@@ -212,6 +216,43 @@ struct CalibrationView: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
+    }
+
+    /// Summary line above the result panel. Reflects HOW the positives were
+    /// obtained: for the caption-anchored fallback we say "N caption anchors"
+    /// rather than "N positive samples", so a successful fit on a category with
+    /// no fetchable positive images doesn't read as a confusing "0 positives".
+    private func positiveCountSummary(_ r: HeadlessCalibrator.Result) -> String {
+        let neg = "\(r.negativeScores.count) negative samples"
+        switch r.positiveSource {
+        case .images:
+            return "\(r.positiveScores.count) positive samples, \(neg)"
+        case .captionAnchored:
+            return "\(r.positiveScores.count) caption anchors, \(neg)"
+        case .none:
+            return "0 positive samples, \(neg)"
+        }
+    }
+
+    /// Informational (not error) banner shown when the positive side was
+    /// calibrated from re-embedded captions because no positive sample images
+    /// exist for the category in the moderated calibration source. Styled blue
+    /// to stand apart from the red error banners.
+    private var captionAnchoredBanner: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "info.circle.fill").foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Calibrated against captions (no positive images available)")
+                    .font(.callout.bold())
+                Text("No positive sample images exist for this category in the calibration source. Calibrated against the category's positive captions instead — re-embedded on-device through the text encoder, no images fetched. The threshold bounds false positives on benign content; recall is anchored to the author's captions.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder

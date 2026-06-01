@@ -86,6 +86,19 @@ public actor ScreenCapture {
     }
 
     public func requestPermission() async throws {
+        // Preflight with the NON-prompting CG check first. `SCShareableContent.current`
+        // actively pokes the TCC system and can surface the Screen Recording prompt
+        // even when access is already granted — so calling it on every daemon
+        // (re)start (e.g. after the Settings "Apply" restart) re-prompts the user
+        // each time. When preflight says we already have access, return immediately
+        // and never touch SCShareableContent here; the actual capture path
+        // exercises it during normal ticks.
+        if CGPreflightScreenCaptureAccess() {
+            return
+        }
+        // Not granted: probe via SCShareableContent so a genuine denial throws with
+        // a clear message (CGRequestScreenCaptureAccess only matters on first-ever
+        // launch; the app's onboarding owns that flow).
         do {
             _ = try await SCShareableContent.current
         } catch {
