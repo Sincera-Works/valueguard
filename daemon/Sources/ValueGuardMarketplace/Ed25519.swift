@@ -96,4 +96,26 @@ public enum Ed25519 {
             throw VGError.signatureInvalid("signing failed: \(error.localizedDescription)")
         }
     }
+
+    /// Derive the raw public key (32 bytes) corresponding to a raw private seed.
+    ///
+    /// Used by `vg pack` so the bundle's `signatures/author.pub` and
+    /// `manifest.author.public_key` are always the verifying half of the exact key
+    /// that signs the bundle — the author supplies only the `.key`, never a
+    /// separate `.pub` that could drift out of sync with the private seed.
+    ///
+    /// - Parameter privateKeyRaw: the 32-byte raw Ed25519 private seed.
+    /// - Returns: the 32-byte raw public key.
+    /// - Throws: `VGError.signatureInvalid` if `privateKeyRaw` is not a valid raw
+    ///   Ed25519 private key.
+    public static func publicKey(forPrivateKeyRaw privateKeyRaw: Data) throws -> Data {
+        do {
+            let privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyRaw)
+            return privateKey.publicKey.rawRepresentation
+        } catch {
+            throw VGError.signatureInvalid(
+                "invalid Ed25519 private key: \(error.localizedDescription)"
+            )
+        }
+    }
 }

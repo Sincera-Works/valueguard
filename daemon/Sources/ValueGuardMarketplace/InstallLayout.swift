@@ -19,25 +19,63 @@ import Foundation
 /// resolution + directory-creation lives in the throwing `init()`; the
 /// `init(configsDir:)` form takes an explicit root so tests can point the whole
 /// layout at a temporary directory without touching the user's real
-/// Application Support folder.
+/// Application Support folder. For the same purpose *at the command line*, the
+/// throwing `init()` honours the `VALUEGUARD_CONFIGS_DIR` environment variable —
+/// see that initializer.
 ///
 /// This type is purely path arithmetic: it never reads or writes the lockfile,
 /// known-keys cache, or any version directory — those are owned by `Lockfile`,
 /// `KnownKeys`, and `Installer`. It only guarantees that `configsDir` exists.
 public struct InstallLayout: Sendable {
+    /// The name of the environment variable that overrides the configs root.
+    ///
+    /// When set to a non-empty value, the throwing ``init()`` uses it verbatim
+    /// (tilde-expanded) as the `configs/` root instead of
+    /// `~/Library/Application Support/ValueGuard/configs/`. This lets the `vg`
+    /// CLI's install / activate / uninstall flows be exercised against a throwaway
+    /// directory (e.g. `VALUEGUARD_CONFIGS_DIR=/tmp/vg-proto-configs vg install …`)
+    /// without ever touching the user's real Application Support tree.
+    public static let configsDirEnvVar = "VALUEGUARD_CONFIGS_DIR"
+
     /// The root of the config install tree: `.../ValueGuard/configs`.
     public let configsDir: URL
 
-    /// Resolves the real Application Support config tree and ensures it exists.
+    /// Resolves the config install tree and ensures it exists — either the real
+    /// Application Support location or the `VALUEGUARD_CONFIGS_DIR` override.
     ///
-    /// Mirrors `AuditLog.swift`: `FileManager.url(for: .applicationSupportDirectory,
-    /// in: .userDomainMask, …, create: true)` → `appendingPathComponent("ValueGuard")`
-    /// → `appendingPathComponent("configs")`, then `createDirectory(…,
+    /// If `VALUEGUARD_CONFIGS_DIR` is set to a non-empty value, that path (with a
+    /// leading `~` expanded) becomes the `configs/` root; it is created with
+    /// intermediate directories. This is the CLI / scripting escape hatch for
+    /// exercising the install lifecycle off the real tree.
+    ///
+    /// Otherwise this mirrors `AuditLog.swift`:
+    /// `FileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, …,
+    /// create: true)` → `appendingPathComponent("ValueGuard")` →
+    /// `appendingPathComponent("configs")`, then `createDirectory(…,
     /// withIntermediateDirectories: true)`.
     ///
     /// - Throws: `VGError.io` if the Application Support directory cannot be
-    ///   located or the `configs` directory cannot be created.
+    ///   located or the `configs` directory (real or override) cannot be created.
     public init() throws {
+        // CLI / test escape hatch: an explicit override directory.
+        if let override = ProcessInfo.processInfo.environment[Self.configsDirEnvVar],
+           !override.isEmpty {
+            let root = URL(
+                fileURLWithPath: (override as NSString).expandingTildeInPath,
+                isDirectory: true
+            )
+            do {
+                try FileManager.default.createDirectory(
+                    at: root,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                throw VGError.io("could not create \(Self.configsDirEnvVar) directory at \(root.path): \(error.localizedDescription)")
+            }
+            self.configsDir = root
+            return
+        }
+
         let supportDir: URL
         do {
             supportDir = try FileManager.default.url(

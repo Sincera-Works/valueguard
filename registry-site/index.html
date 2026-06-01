@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ValueGuard Configs</title>
+<meta name="description" content="Browse signed, portable content-filter config bundles for ValueGuard. Pixels never leave your device." />
+<style>
+  :root {
+    --bg:        #0d1117;
+    --bg-soft:   #151b23;
+    --bg-card:   #161c24;
+    --bg-elev:   #1c242e;
+    --border:    #232c38;
+    --border-hi: #303c4c;
+    --fg:        #e6edf3;
+    --fg-muted:  #9aa7b4;
+    --fg-dim:    #6b7785;
+    --accent:    #5eead4;   /* teal — the one accent */
+    --accent-dim:#1f4d47;
+    --ok:        #57d364;
+    --amber:     #e3b341;
+    --red:       #f0726b;
+    --neutral:   #7d8896;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --radius: 10px;
+    --shadow: 0 1px 0 rgba(255,255,255,.02), 0 8px 24px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, .mono { font-family: var(--mono); }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---- Header ---- */
+  header {
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg-soft), var(--bg));
+  }
+  .head-inner { padding: 40px 0 32px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 30px; height: 30px; flex: none;
+    border-radius: 8px;
+    border: 1px solid var(--border-hi);
+    background:
+      radial-gradient(circle at 50% 50%, var(--accent) 0 22%, transparent 23%),
+      var(--bg-elev);
+    box-shadow: inset 0 0 0 4px var(--bg-elev), inset 0 0 0 5px var(--accent-dim);
+  }
+  h1 { font-size: 1.5rem; margin: 0; letter-spacing: -0.01em; font-weight: 650; }
+  .tagline { color: var(--fg-muted); margin: 10px 0 0; font-size: 0.98rem; }
+  .blurb {
+    margin: 22px 0 0;
+    max-width: 680px;
+    color: var(--fg-muted);
+    font-size: 0.92rem;
+    line-height: 1.65;
+    border-left: 2px solid var(--accent-dim);
+    padding: 2px 0 2px 14px;
+  }
+  .blurb strong { color: var(--fg); font-weight: 600; }
+
+  /* ---- Toolbar ---- */
+  .toolbar {
+    display: flex; align-items: center; gap: 14px;
+    margin: 26px 0 4px; flex-wrap: wrap;
+  }
+  .search {
+    flex: 1 1 280px; min-width: 0;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 9px 12px;
+    transition: border-color .15s ease;
+  }
+  .search:focus-within { border-color: var(--border-hi); }
+  .search svg { flex: none; color: var(--fg-dim); }
+  .search input {
+    flex: 1; min-width: 0;
+    background: transparent; border: 0; outline: 0;
+    color: var(--fg); font-size: 0.95rem; font-family: var(--sans);
+  }
+  .search input::placeholder { color: var(--fg-dim); }
+  .count { color: var(--fg-dim); font-size: 0.85rem; font-family: var(--mono); white-space: nowrap; }
+
+  /* ---- Grid ---- */
+  main { padding: 8px 0 56px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+    margin-top: 18px;
+  }
+
+  /* ---- Card ---- */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    display: flex; flex-direction: column;
+    box-shadow: var(--shadow);
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .card:hover { border-color: var(--border-hi); }
+  .card-head { display: flex; align-items: flex-start; gap: 10px; }
+  .card-title { flex: 1; min-width: 0; }
+  .card-name { font-size: 1.05rem; font-weight: 620; letter-spacing: -0.01em; margin: 0; }
+  .card-author { font-family: var(--mono); font-size: 0.8rem; color: var(--fg-dim); margin-top: 3px; }
+
+  .badge {
+    flex: none;
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 0.72rem; font-weight: 600;
+    padding: 3px 8px; border-radius: 999px;
+    border: 1px solid transparent; white-space: nowrap;
+  }
+  .badge.verified { color: var(--ok); background: rgba(87,211,100,.08); border-color: rgba(87,211,100,.28); }
+  .badge.verified svg { width: 12px; height: 12px; }
+
+  .card-desc { color: var(--fg-muted); font-size: 0.9rem; margin: 12px 0 0; line-height: 1.55; }
+
+  .unverified-note {
+    margin: 12px 0 0; font-size: 0.78rem; color: var(--amber);
+    background: rgba(227,179,65,.06); border: 1px solid rgba(227,179,65,.2);
+    border-radius: 7px; padding: 7px 10px; line-height: 1.45;
+  }
+  .unverified-note .fp { color: var(--fg-muted); font-family: var(--mono); font-size: 0.72rem; word-break: break-all; }
+
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 14px 0 0; font-size: 0.8rem; color: var(--fg-dim); }
+  .meta b { color: var(--fg-muted); font-weight: 500; }
+  .meta .mono { color: var(--fg-muted); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+  .chip {
+    font-size: 0.74rem; font-family: var(--mono);
+    color: var(--fg-muted); background: var(--bg-elev);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 2px 7px;
+  }
+
+  /* ---- Install row ---- */
+  .install { margin: 16px 0 0; display: flex; gap: 8px; align-items: stretch; }
+  .install code {
+    flex: 1; min-width: 0;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 7px; padding: 8px 10px;
+    font-size: 0.82rem; color: var(--fg);
+    overflow-x: auto; white-space: nowrap;
+    display: flex; align-items: center;
+  }
+  .copy-btn {
+    flex: none;
+    background: var(--accent-dim); color: var(--accent);
+    border: 1px solid rgba(94,234,212,.25);
+    border-radius: 7px; padding: 0 12px;
+    font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    font-family: var(--sans);
+    transition: background .15s ease, color .15s ease;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .copy-btn:hover { background: #265c54; }
+  .copy-btn.copied { background: rgba(87,211,100,.14); color: var(--ok); border-color: rgba(87,211,100,.3); }
+  .copy-btn svg { width: 13px; height: 13px; }
+
+  /* ---- Details expander ---- */
+  .details { margin: 14px 0 0; border-top: 1px solid var(--border); padding-top: 12px; }
+  .details summary {
+    cursor: pointer; list-style: none; user-select: none;
+    font-size: 0.82rem; color: var(--fg-muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .details summary::-webkit-details-marker { display: none; }
+  .details summary .chev { transition: transform .15s ease; color: var(--fg-dim); }
+  .details[open] summary .chev { transform: rotate(90deg); }
+  .details summary:hover { color: var(--fg); }
+
+  .section-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-dim); margin: 14px 0 8px; }
+
+  .ver { font-size: 0.8rem; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .ver:last-child { border-bottom: 0; }
+  .ver-top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .ver-v { font-family: var(--mono); color: var(--fg); font-weight: 600; }
+  .ver-date { color: var(--fg-dim); }
+  .ver-sub { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 3px; color: var(--fg-dim); font-family: var(--mono); font-size: 0.74rem; }
+
+  .cats { display: flex; flex-direction: column; gap: 5px; }
+  .cat { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
+  .cat .id { font-family: var(--mono); color: var(--fg-muted); }
+  .act {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 1px 7px; border-radius: 5px; font-family: var(--mono); flex: none;
+  }
+  .act.log   { color: var(--neutral); background: rgba(125,136,150,.14); border: 1px solid rgba(125,136,150,.3); }
+  .act.blur  { color: var(--amber);   background: rgba(227,179,65,.12);  border: 1px solid rgba(227,179,65,.3); }
+  .act.block { color: var(--red);     background: rgba(240,114,107,.12); border: 1px solid rgba(240,114,107,.3); }
+
+  /* ---- States ---- */
+  .state {
+    text-align: center; padding: 80px 20px; color: var(--fg-muted);
+    border: 1px dashed var(--border); border-radius: var(--radius);
+    margin-top: 18px; background: var(--bg-soft);
+  }
+  .state h2 { color: var(--fg); font-size: 1.1rem; margin: 0 0 8px; font-weight: 600; }
+  .state p { margin: 0; font-size: 0.9rem; }
+  .state.error h2 { color: var(--amber); }
+  .hidden { display: none !important; }
+
+  /* ---- Footer ---- */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 22px 0 40px;
+    color: var(--fg-dim); font-size: 0.8rem;
+  }
+  .footer-inner { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  footer .mono { color: var(--fg-muted); }
+
+  /* ---- Toast ---- */
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px);
+    background: var(--bg-elev); color: var(--fg);
+    border: 1px solid var(--border-hi); border-radius: 8px;
+    padding: 10px 16px; font-size: 0.85rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease;
+    z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 600px) {
+    .head-inner { padding: 30px 0 24px; }
+    .grid { grid-template-columns: 1fr; }
+    .meta { gap: 4px 12px; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="wrap head-inner">
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <h1 id="reg-name">ValueGuard Configs</h1>
+      </div>
+      <p class="tagline">Portable, signed content-filter policies for the on-device macOS filter.</p>
+      <p class="blurb">
+        ValueGuard samples your screen at 1&nbsp;Hz and runs SigLIP-2 on the Apple Neural Engine, comparing each frame
+        against a policy compiled from a plain-English values statement. <strong>Pixels never leave your device.</strong>
+        This registry hosts only configs &mdash; JSON, signed metadata, and calibrated float vectors; it never sees your screen content.
+        Every bundle is <strong>signed with Ed25519</strong>, and <code>vg install</code> verifies the signature offline before activating it.
+      </p>
+
+      <div class="toolbar">
+        <label class="search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path>
+          </svg>
+          <input id="search" type="search" placeholder="Search by name, author, tag, description…" autocomplete="off" spellcheck="false" />
+        </label>
+        <span class="count" id="count" aria-live="polite"></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="grid" class="grid" hidden></div>
+    <div id="loading" class="state"><p>Loading registry…</p></div>
+    <div id="empty" class="state hidden">
+      <h2>No configs published yet</h2>
+      <p>This registry is empty. Once configs are published, they will appear here.</p>
+    </div>
+    <div id="no-results" class="state hidden">
+      <h2>No matches</h2>
+      <p>No configs match your search. Try a different term.</p>
+    </div>
+    <div id="error" class="state error hidden">
+      <h2>Could not load the registry</h2>
+      <p>The registry index (<code>index.json</code>) could not be loaded. If you just deployed, run <code>vg reindex</code> to generate it.</p>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <span>ValueGuard config registry &middot; static index, no tracking</span>
+      <span id="generated"></span>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">Copied</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>';
+  var ICON_COPY  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>';
+  var ICON_SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>';
+  var ICON_CHEV   = '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>';
+
+  var el = {
+    grid:      document.getElementById("grid"),
+    loading:   document.getElementById("loading"),
+    empty:     document.getElementById("empty"),
+    noResults: document.getElementById("no-results"),
+    error:     document.getElementById("error"),
+    search:    document.getElementById("search"),
+    count:     document.getElementById("count"),
+    regName:   document.getElementById("reg-name"),
+    generated: document.getElementById("generated"),
+    toast:     document.getElementById("toast")
+  };
+
+  var configs = [];   // normalized config objects with a precomputed search blob
+
+  // ---------- helpers ----------
+  function text(s) { return s == null ? "" : String(s); }
+
+  function escapeHtml(s) {
+    return text(s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function fmtBytes(n) {
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return "—";
+    if (n < 1024) return n + " B";
+    var kb = n / 1024;
+    if (kb < 1024) return (kb >= 100 ? Math.round(kb) : kb.toFixed(1)) + " KB";
+    return (kb / 1024).toFixed(1) + " MB";
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return escapeHtml(iso);
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function shortHash(h) {
+    h = text(h);
+    return h.length > 16 ? h.slice(0, 12) + "…" : h;
+  }
+
+  function actionClass(a) {
+    a = text(a).toLowerCase();
+    return (a === "block" || a === "blur" || a === "log") ? a : "log";
+  }
+
+  // ---------- card rendering ----------
+  function renderVersions(versions) {
+    if (!Array.isArray(versions) || versions.length === 0) return "";
+    var rows = versions.map(function (v) {
+      var cats = Array.isArray(v.categories) ? v.categories : [];
+      var catHtml = cats.length
+        ? '<div class="section-label">Categories</div><div class="cats">' +
+            cats.map(function (c) {
+              var cls = actionClass(c.action);
+              return '<div class="cat"><span class="act ' + cls + '">' + escapeHtml(cls) + '</span>' +
+                     '<span class="id">' + escapeHtml(c.id) + '</span></div>';
+            }).join("") +
+          '</div>'
+        : "";
+      return '<div class="ver">' +
+               '<div class="ver-top"><span class="ver-v">' + escapeHtml(v.version) + '</span>' +
+                 '<span class="ver-date">' + fmtDate(v.created_at) + '</span></div>' +
+               '<div class="ver-sub"><span>' + fmtBytes(v.size_bytes) + '</span>' +
+                 '<span title="' + escapeHtml(v.bundle_sha256) + '">sha256 ' + escapeHtml(shortHash(v.bundle_sha256)) + '</span></div>' +
+               catHtml +
+             '</div>';
+    }).join("");
+    return rows;
+  }
+
+  function renderCard(c) {
+    var card = document.createElement("article");
+    card.className = "card";
+
+    var tags = Array.isArray(c.tags) ? c.tags : [];
+    var versions = Array.isArray(c.versions) ? c.versions : [];
+    var latest = versions[0] || {};
+    var latestCats = Array.isArray(latest.categories) ? latest.categories : [];
+    var installCmd = "vg install " + text(c.author) + "/" + text(c.slug);
+
+    var verifiedBadge = c.verified
+      ? '<span class="badge verified" title="Author key verified by the registry">' + ICON_SHIELD + 'verified</span>'
+      : "";
+
+    var unverifiedNote = c.verified
+      ? ""
+      : '<div class="unverified-note">Community config — unverified. Verify the author key fingerprint before trusting it:' +
+        '<br><span class="fp">' + escapeHtml(c.author_fingerprint || "unknown") + '</span></div>';
+
+    var chips = tags.length
+      ? '<div class="chips">' + tags.map(function (t) { return '<span class="chip">' + escapeHtml(t) + '</span>'; }).join("") + '</div>'
+      : "";
+
+    card.innerHTML =
+      '<div class="card-head">' +
+        '<div class="card-title">' +
+          '<h2 class="card-name">' + escapeHtml(c.name) + '</h2>' +
+          '<div class="card-author">' + escapeHtml(c.author) + '/' + escapeHtml(c.slug) + '</div>' +
+        '</div>' +
+        verifiedBadge +
+      '</div>' +
+      (c.description ? '<p class="card-desc">' + escapeHtml(c.description) + '</p>' : "") +
+      unverifiedNote +
+      '<div class="meta">' +
+        '<span><b>v</b> <span class="mono">' + escapeHtml(c.latest_version) + '</span></span>' +
+        '<span><b>license</b> <span class="mono">' + escapeHtml(c.license || "—") + '</span></span>' +
+        '<span><b>categories</b> <span class="mono">' + latestCats.length + '</span></span>' +
+        '<span><b>size</b> <span class="mono">' + fmtBytes(latest.size_bytes) + '</span></span>' +
+      '</div>' +
+      chips +
+      '<div class="install">' +
+        '<code>' + escapeHtml(installCmd) + '</code>' +
+        '<button class="copy-btn" type="button">' + ICON_COPY + '<span class="lbl">Copy</span></button>' +
+      '</div>' +
+      '<details class="details">' +
+        '<summary>' + ICON_CHEV + 'Versions &amp; categories (' + versions.length + ')</summary>' +
+        '<div class="ver-list">' + renderVersions(versions) + '</div>' +
+      '</details>';
+
+    var btn = card.querySelector(".copy-btn");
+    btn.addEventListener("click", function () { copyInstall(btn, installCmd); });
+
+    return card;
+  }
+
+  // ---------- copy ----------
+  function copyInstall(btn, cmd) {
+    function done() {
+      btn.classList.add("copied");
+      btn.innerHTML = ICON_CHECK + '<span class="lbl">Copied</span>';
+      showToast("Copied: " + cmd);
+      setTimeout(function () {
+        btn.classList.remove("copied");
+        btn.innerHTML = ICON_COPY + '<span class="lbl">Copy</span>';
+      }, 1600);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(cmd).then(done, function () { fallbackCopy(cmd, done); });
+    } else {
+      fallbackCopy(cmd, done);
+    }
+  }
+
+  function fallbackCopy(cmd, done) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = cmd;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      done();
+    } catch (e) {
+      showToast("Copy failed — select the command manually");
+    }
+  }
+
+  var toastTimer = null;
+  function showToast(msg) {
+    el.toast.textContent = msg;
+    el.toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.toast.classList.remove("show"); }, 1800);
+  }
+
+  // ---------- search / render ----------
+  function buildSearchBlob(c) {
+    var parts = [c.name, c.author, c.slug, c.description, c.license, (c.tags || []).join(" ")];
+    return parts.join("   ").toLowerCase();
+  }
+
+  function render(query) {
+    query = (query || "").trim().toLowerCase();
+    el.grid.innerHTML = "";
+
+    var matches = configs;
+    if (query) {
+      matches = configs.filter(function (c) { return c._blob.indexOf(query) !== -1; });
+    }
+
+    if (configs.length === 0) {
+      show("empty");
+      el.count.textContent = "";
+      return;
+    }
+    if (matches.length === 0) {
+      show("noResults");
+      el.count.textContent = "0 of " + configs.length;
+      return;
+    }
+
+    var frag = document.createDocumentFragment();
+    matches.forEach(function (c) { frag.appendChild(renderCard(c)); });
+    el.grid.appendChild(frag);
+    show("grid");
+    el.count.textContent = query
+      ? matches.length + " of " + configs.length
+      : configs.length + (configs.length === 1 ? " config" : " configs");
+  }
+
+  function show(which) {
+    var map = { grid: el.grid, empty: el.empty, noResults: el.noResults, error: el.error, loading: el.loading };
+    Object.keys(map).forEach(function (k) {
+      var node = map[k];
+      if (k === "grid") node.hidden = (which !== "grid");
+      else node.classList.toggle("hidden", which !== k);
+    });
+  }
+
+  // ---------- load ----------
+  function load() {
+    fetch("./index.json", { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || typeof data !== "object") throw new Error("malformed index");
+
+        if (data.registry && data.registry.name) {
+          el.regName.textContent = data.registry.name;
+          document.title = data.registry.name;
+        }
+        if (data.generated_at) {
+          el.generated.innerHTML = 'Generated <span class="mono">' + escapeHtml(fmtDate(data.generated_at)) + '</span>';
+        }
+
+        var list = Array.isArray(data.configs) ? data.configs : [];
+        configs = list.map(function (c) {
+          var n = c || {};
+          n._blob = buildSearchBlob(n);
+          return n;
+        });
+        // Stable sort: verified first, then by name.
+        configs.sort(function (a, b) {
+          if (!!a.verified !== !!b.verified) return a.verified ? -1 : 1;
+          return text(a.name).localeCompare(text(b.name));
+        });
+
+        render("");
+      })
+      .catch(function (err) {
+        // Missing or broken index.json -> friendly error, never a raw stack.
+        console.warn("ValueGuard registry: failed to load index.json —", err && err.message);
+        show("error");
+      });
+  }
+
+  el.search.addEventListener("input", function () { render(el.search.value); });
+
+  load();
+})();
+</script>
+</body>
+</html>

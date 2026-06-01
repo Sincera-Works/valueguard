@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-31T22:00:00Z",
+  "registry": { "name": "ValueGuard Configs" },
+  "configs": [
+    {
+      "author": "sincera",
+      "slug": "personal-values",
+      "name": "Personal Values (Strict)",
+      "description": "Conservative thresholds tuned for solo desktop use.",
+      "latest_version": "1.0.0",
+      "license": "MIT",
+      "tags": ["personal", "strict"],
+      "verified": false,
+      "author_fingerprint": "abc1230000000000000000000000000000000000000000000000000000000def",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "created_at": "2026-05-28T00:00:00Z",
+          "bundle_sha256": "1bff3efefd984729ab84fde3cd7cc14e24a17202c8164c3cc9e77c8bad2ee7ce",
+          "bundle_path": "bundles/1bff3efefd984729ab84fde3cd7cc14e24a17202c8164c3cc9e77c8bad2ee7ce.vgconfig",
+          "manifest_path": "configs/sincera/personal-values/1.0.0/manifest.json",
+          "size_bytes": 30779,
+          "categories": [
+            { "id": "explicit_sexual_acts", "action": "block" },
+            { "id": "graphic_violence", "action": "block" },
+            { "id": "gambling", "action": "blur" }
+          ]
+        }
+      ]
+    },
+    {
+      "author": "anvil",
+      "slug": "personal-baseline",
+      "name": "Personal Baseline",
+      "description": "A gentle starting point: blocks the worst, blurs the borderline, logs the rest. Good first install while you calibrate your own values statement.",
+      "latest_version": "2.1.0",
+      "license": "Apache-2.0",
+      "tags": ["personal", "baseline", "starter"],
+      "verified": true,
+      "author_fingerprint": "9f2c7a1b4e6d8f0a3c5b7d9e1f2a4c6b8d0e2f4a6c8b0d2e4f6a8c0b2d4e6f80",
+      "versions": [
+        {
+          "version": "2.1.0",
+          "created_at": "2026-05-30T14:12:00Z",
+          "bundle_sha256": "7c9d2e4f6a8b0c1d3e5f7a9b1c3d5e7f9a0b2c4d6e8f0a1b3c5d7e9f1a3b5c7d",
+          "bundle_path": "bundles/7c9d2e4f6a8b0c1d3e5f7a9b1c3d5e7f9a0b2c4d6e8f0a1b3c5d7e9f1a3b5c7d.vgconfig",
+          "manifest_path": "configs/anvil/personal-baseline/2.1.0/manifest.json",
+          "size_bytes": 41204,
+          "categories": [
+            { "id": "explicit_sexual_acts", "action": "block" },
+            { "id": "graphic_violence", "action": "blur" },
+            { "id": "self_harm", "action": "block" },
+            { "id": "drug_use", "action": "log" },
+            { "id": "gambling", "action": "log" }
+          ]
+        },
+        {
+          "version": "2.0.0",
+          "created_at": "2026-05-18T09:00:00Z",
+          "bundle_sha256": "3a1b5c7d9e2f4a6c8b0d2e4f6a8c0b2d4e6f8a0c2b4d6e8f0a2c4b6d8e0f2a40",
+          "bundle_path": "bundles/3a1b5c7d9e2f4a6c8b0d2e4f6a8c0b2d4e6f8a0c2b4d6e8f0a2c4b6d8e0f2a40.vgconfig",
+          "manifest_path": "configs/anvil/personal-baseline/2.0.0/manifest.json",
+          "size_bytes": 39870,
+          "categories": [
+            { "id": "explicit_sexual_acts", "action": "block" },
+            { "id": "graphic_violence", "action": "blur" },
+            { "id": "self_harm", "action": "block" }
+          ]
+        }
+      ]
+    },
+    {
+      "author": "fern",
+      "slug": "desk-mode",
+      "name": "Desk Mode (Focus)",
+      "description": "Light-touch policy for shared and open-office desks. Blurs NSFW so a passerby never sees it, but logs rather than blocks so you stay in flow.",
+      "latest_version": "0.4.2",
+      "license": "MIT",
+      "tags": ["work", "office", "focus", "blur"],
+      "verified": false,
+      "author_fingerprint": "d4e6f8a0c2b4d6e8f0a2c4b6d8e0f2a4c6b8d0e2f4a6c8b0d2e4f6a8c0b2d4e6",
+      "versions": [
+        {
+          "version": "0.4.2",
+          "created_at": "2026-05-29T18:45:00Z",
+          "bundle_sha256": "e8f0a2c4b6d8e0f2a4c6b8d0e2f4a6c8b0d2e4f6a8c0b2d4e6f8a0c2b4d6e8f0",
+          "bundle_path": "bundles/e8f0a2c4b6d8e0f2a4c6b8d0e2f4a6c8b0d2e4f6a8c0b2d4e6f8a0c2b4d6e8f0.vgconfig",
+          "manifest_path": "configs/fern/desk-mode/0.4.2/manifest.json",
+          "size_bytes": 22618,
+          "categories": [
+            { "id": "explicit_sexual_acts", "action": "blur" },
+            { "id": "suggestive_imagery", "action": "blur" },
+            { "id": "graphic_violence", "action": "log" }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -3,6 +3,53 @@
 State-changing actions (build changes, signing swaps, policy revisions, model
 upgrades). Newest first.
 
+## 2026-05-31 — Marketplace prototype (static-registry cut)
+
+Built a working marketplace prototype on top of the done P0 (bundle format,
+Ed25519 sign/verify, offline `vg install/activate`). Decision: a **static
+registry** (no backend) hosted on **Cloudflare Pages + R2**, CLI + minimal web
+page. All in `daemon/` + new `registry-site/`. **40 tests pass.**
+
+- **Authoring.** `vg keygen` (persist an Ed25519 author key) and `vg pack`
+  (assemble + sign a `.vgconfig` from `policy.bin`/`policy.json`), backed by a
+  new public `Packer` in the library (the pack/sign logic that previously lived
+  only in the test `FixtureBuilder`, now shared). Real bundle packed:
+  `sincera/personal-values@1.0.0`, sha256 `1bff3efe…`.
+- **Registry.** `vg reindex --bundles <dir> --out <registry-dir>` generates a
+  static tree: `index.json` + content-addressed `bundles/<sha>.vgconfig` +
+  extracted `configs/<a>/<s>/<v>/manifest.json`+`calibration.json`. New
+  `RegistryIndex`/`RegistryClient`/`SemVer`/`Reindexer` in the lib.
+- **Install/search.** `vg install author/slug[@ver]` resolves via `index.json`,
+  downloads over HTTPS, re-hashes the bytes against `bundle_sha256`, then runs
+  the existing offline verify+install path. Direct `vg install https://…` and
+  the old local/`file://` paths still work. `vg search [q] [--tag t]`. Registry
+  base precedence: `--registry` > `VALUEGUARD_REGISTRY` > default
+  `https://valueguard-configs.pages.dev` (one constant in `RegistryClient`).
+- **Testability.** `InstallLayout` now honors `VALUEGUARD_CONFIGS_DIR` so
+  install/activate/uninstall can run against a scratch tree.
+- **Web.** `registry-site/` — zero-dependency static page reading `index.json`
+  (cards, live search, copy-paste `vg install`, per-version + category detail,
+  verified badge, privacy blurb). `build-site.sh` assembles
+  `registry-site/dist/` (page + a real `vg reindex`); `DEPLOY.md` documents the
+  Cloudflare Pages deploy and the R2-graduation path. `dist/` is gitignored.
+- **Verified end-to-end:** pack → reindex → search → install → activate → list
+  → uninstall, and the assembled site serves page+`index.json`+bundle blob over
+  HTTP (200s, correct sizes).
+- **DEPLOYED 2026-05-31.** Cloudflare Pages project `valueguard-configs`
+  (account `mcauley.brad@gmail.com`, alongside the other Sincera Pages
+  projects) — live at **https://valueguard-configs.pages.dev**, which is the
+  CLI's baked-in default base, so `vg search` / `vg install
+  sincera/personal-values` work with **zero flags** against the live registry.
+  Verified: page/index.json/bundle blob all serve 200 with correct sizes, and a
+  full `install → activate → list` over the public URL succeeds. Deploy was
+  `wrangler pages deploy registry-site/dist` after the maintainer ran `wrangler
+  login` (the OAuth token now carries `pages:write` + resolvable account ID).
+  Redeploy = `registry-site/build-site.sh` then the same deploy command.
+
+Build note: the repo relocation left a stale `.build/ModuleCache` referencing
+`~/projects/valueguard`; if "compiled with module cache path" errors appear,
+`rm -rf daemon/.build` and rebuild.
+
 ## 2026-05-28 — Repo hardening: branch protection + Claude review CI
 
 - **Repo moved** to `Sincera-Works/valueguard` (was `sincera7/valueguard`);
