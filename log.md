@@ -3,6 +3,33 @@
 State-changing actions (build changes, signing swaps, policy revisions, model
 upgrades). Newest first.
 
+## 2026-06-01 — 0.3.1: config-activation fixes (released)
+
+Bug report (with screenshots): activating a marketplace config "did nothing".
+Two real app-layer bugs found + fixed; the underlying `Installer.activate`
+(symlink/lockfile/copy) was always correct.
+
+- **Activate silently rejected** (PR #22): `activate()`'s reentrancy guard
+  required `state == .idle`, but post-install the coordinator sits in
+  `.installed(ref:)` — so the very next Activate click threw "not idle" and the
+  view swallowed it with `try?`. Fixed: guard on `!isBusy`; the view now surfaces
+  activate errors (`reportFailure`) so a rejection is never silent again.
+- **Policy tab showed the old policy after activating** (PR #23): copy-on-activate
+  copied `policy.bin` (so the daemon ran the new config) but NOT the sibling
+  `policy.json` the Policy tab displays from — UI showed the previous category
+  while the daemon ran the new one. Fixed: copy `policy.bin` + `policy.json` +
+  `calibration.json` together. Verified live in the running app.
+- **Released `app-v0.3.1`**: notarized + stapled DMG (build 4), EdDSA-signed,
+  appcast updated (#24) and deployed. Verified end-to-end: live feed = 0.3.1
+  (HTTP 200), enclosure DMG downloads at the exact declared length. 0.3.0 users
+  auto-update to this.
+- **Known limitation surfaced (not a bug):** the in-app Bayesian calibrator can't
+  fetch *positive* samples for explicit categories — it sources from Wikimedia
+  Commons, which by design hosts none of that content (got 0 positive / 14
+  negative for `sexualized_nudity_contemporary`). Confirmed against the live API.
+  Marketplace configs ship the author's calibrated thresholds; local
+  re-calibration of explicit categories is the open design question. Deferred.
+
 ## 2026-06-01 — Sparkle auto-updater shipped; 0.3.0 released
 
 The Mac app now auto-updates (Sparkle 2.9.2), and the first Sparkle-enabled
