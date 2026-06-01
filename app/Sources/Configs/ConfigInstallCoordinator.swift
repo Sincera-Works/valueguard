@@ -304,10 +304,17 @@ final class ConfigInstallCoordinator: ObservableObject {
 
     /// Discard a pending confirmation without installing: drop the downloaded
     /// temp bundle and return to ``State/idle``.
+    ///
+    /// Only acts while actually awaiting confirmation. This matters because
+    /// `sheet(item:)` calls its dismiss setter (which routes here) whenever the
+    /// item goes nil — including the legitimate `.awaitingConfirmation → .installing`
+    /// transition when the user taps Install. Guarding on the state means an
+    /// in-flight install is never clobbered back to `.idle` (which would also
+    /// re-enable the Install button mid-install). A genuine interactive dismiss
+    /// (Escape) still fires this while the state is `.awaitingConfirmation`.
     func cancelConfirmation() {
-        if case .awaitingConfirmation(let info) = state {
-            try? FileManager.default.removeItem(at: info.bundleTempURL)
-        }
+        guard case .awaitingConfirmation(let info) = state else { return }
+        try? FileManager.default.removeItem(at: info.bundleTempURL)
         state = .idle
     }
 
@@ -385,7 +392,12 @@ final class ConfigInstallCoordinator: ObservableObject {
                 try Self.atomicCopy(from: sourcePolicy, to: dest)
             }.value
         } catch {
-            // Surface to the banner AND rethrow so the caller can react.
+            // Surface to the banner AND rethrow so the caller can react. Refresh
+            // the list too: `Installer.activate` writes the lockfile `active`
+            // field *before* the copy step, so a copy failure can leave the
+            // on-disk ACTIVE marker pointing at this config — re-reading keeps
+            // the displayed list consistent with the lockfile.
+            refresh()
             state = .failed(message: Self.message(for: error))
             throw error
         }
@@ -393,6 +405,9 @@ final class ConfigInstallCoordinator: ObservableObject {
         // Restart on the main actor (the daemon host is MainActor-isolated).
         restart()
         refresh()
+        // Clear any stale terminal banner (e.g. a prior `.failed`) now that an
+        // activation has succeeded, so the UI doesn't keep showing an old error.
+        if case .failed = state { state = .idle }
     }
 
     // MARK: - Uninstall
@@ -406,14 +421,30 @@ final class ConfigInstallCoordinator: ObservableObject {
     /// *offering* it), but the running daemon keeps its loaded flat policy until
     /// the user activates a different config or recompiles.
     ///
-    /// - Throws: ``VGError`` if the config isn't installed or the filesystem
-    ///   removal fails.
+    /// - Throws: ``VGError`` if the config isn't installed, the filesystem
+    ///   removal fails, or another install/activate is in flight (`uninstall`
+    ///   mutates the same `lockfile.json` those steps write, and the marketplace
+    ///   `Installer` has no cross-process lock).
     func uninstall(author: String, slug: String) async throws {
+        // Defense-in-depth alongside the disabled UI button: refuse to mutate the
+        // lockfile while a resolve/install/activate may be writing it.
+        guard !isBusy else {
+            throw VGError.io("can't uninstall while another operation is in progress")
+        }
         try await Task.detached(priority: .userInitiated) {
             let layout = try InstallLayout()
             try Installer(layout: layout).uninstall(author: author, slug: slug)
         }.value
         refresh()
+    }
+
+    /// Whether a resolve/install/activate is in flight — used to gate
+    /// lockfile-mutating operations (uninstall) from racing them.
+    var isBusy: Bool {
+        switch state {
+        case .resolving, .installing: return true
+        case .idle, .awaitingConfirmation, .installed, .failed: return false
+        }
     }
 
     // MARK: - Helpers
@@ -513,17 +544,24 @@ final class ConfigInstallCoordinator: ObservableObject {
 
         // Atomic, existence-agnostic replace via rename(2). FileManager has no
         // atomic move-with-overwrite, so drop to Darwin.
+        //
+        // A nil file-system representation (path not representable) means rename
+        // was never called, so `errno` would be stale — distinguish that case
+        // with a sentinel rather than reporting a misleading "Success".
+        var pathUnrepresentable = false
         let result = staging.withUnsafeFileSystemRepresentation { oldPtr -> Int32 in
-            guard let oldPtr else { return -1 }
+            guard let oldPtr else { pathUnrepresentable = true; return -1 }
             return dest.withUnsafeFileSystemRepresentation { newPtr -> Int32 in
-                guard let newPtr else { return -1 }
+                guard let newPtr else { pathUnrepresentable = true; return -1 }
                 return rename(oldPtr, newPtr)
             }
         }
         guard result == 0 else {
-            let err = String(cString: strerror(errno))
+            let detail = pathUnrepresentable
+                ? "path is not representable on the filesystem"
+                : String(cString: strerror(errno))
             try? fm.removeItem(at: staging)
-            throw VGError.io("could not install policy.bin at \(dest.path): \(err)")
+            throw VGError.io("could not install policy.bin at \(dest.path): \(detail)")
         }
     }
 

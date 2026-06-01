@@ -134,6 +134,10 @@ struct ConfigsView: View {
                 List(coordinator.installedConfigs, id: \.installRef) { config in
                     InstalledConfigRow(
                         config: config,
+                        // Disable row actions while a resolve/install/activate is
+                        // in flight: they mutate the same lockfile.json with no
+                        // cross-process lock, so concurrent writes could corrupt it.
+                        actionsDisabled: isBusy,
                         onActivate: { activate(config) },
                         onUninstall: { uninstall(config) }
                     )
@@ -219,6 +223,8 @@ struct ConfigsView: View {
 /// short fingerprint, install date, and the Activate / Uninstall actions.
 private struct InstalledConfigRow: View {
     let config: InstalledConfig
+    /// Disables Activate/Uninstall while another lockfile-mutating op is running.
+    let actionsDisabled: Bool
     let onActivate: () -> Void
     let onUninstall: () -> Void
 
@@ -248,9 +254,10 @@ private struct InstalledConfigRow: View {
             }
             Spacer()
             Button("Activate", action: onActivate)
-                .disabled(config.active)
+                .disabled(config.active || actionsDisabled)
             Button("Uninstall", action: onUninstall)
                 .foregroundStyle(.red)
+                .disabled(actionsDisabled)
         }
         .padding(.vertical, 2)
     }
