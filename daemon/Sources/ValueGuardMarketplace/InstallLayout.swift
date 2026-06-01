@@ -126,8 +126,47 @@ public struct InstallLayout: Sendable {
         configsDir.appendingPathComponent("known_keys.json", isDirectory: false)
     }
 
+    /// Defense-in-depth path-component guard for the `author` / `slug` /
+    /// `version` values that become directory names under `configs/`.
+    ///
+    /// `ManifestValidator` already constrains these to strict regexes
+    /// (`author.handle` `^[a-z0-9][a-z0-9-]{1,38}$`, `config_id`
+    /// `^[a-z][a-z0-9-]{1,38}[a-z0-9]$`, SemVer `version`) and `Installer` only
+    /// builds paths from a *verified* manifest — so a traversal component can't
+    /// reach here through the normal path. This is the last line of defence: it
+    /// rejects any component that is empty, `.`/`..`, contains a path separator,
+    /// or is absolute, so a future caller (or a validator regression) can never
+    /// turn a config field into a write outside `configs/`.
+    ///
+    /// - Throws: `VGError.bundleLayout` naming the offending field.
+    public static func assertSafeComponents(author: String, slug: String, version: String) throws {
+        try assertSafeComponent(author, field: "author")
+        try assertSafeComponent(slug, field: "slug")
+        try assertSafeComponent(version, field: "version")
+    }
+
+    /// Reject a single path component that could escape `configs/`.
+    private static func assertSafeComponent(_ component: String, field: String) throws {
+        guard !component.isEmpty else {
+            throw VGError.bundleLayout("\(field) is empty")
+        }
+        guard component != ".", component != ".." else {
+            throw VGError.bundleLayout("\(field) '\(component)' is a path-traversal component")
+        }
+        guard !component.contains("/") else {
+            throw VGError.bundleLayout("\(field) '\(component)' contains a path separator")
+        }
+        guard !(component as NSString).isAbsolutePath else {
+            throw VGError.bundleLayout("\(field) '\(component)' is an absolute path")
+        }
+    }
+
     /// The directory holding a single installed version's artifacts:
     /// `configs/<author>/<slug>/<version>/`.
+    ///
+    /// Path-arithmetic only; callers that build directories from untrusted-origin
+    /// values must first run ``assertSafeComponents(author:slug:version:)``
+    /// (`Installer` does this at the top of install).
     public func versionDir(author: String, slug: String, version: String) -> URL {
         slugDir(author: author, slug: slug)
             .appendingPathComponent(version, isDirectory: true)
