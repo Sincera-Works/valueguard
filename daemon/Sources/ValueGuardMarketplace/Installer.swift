@@ -119,6 +119,18 @@ public struct Installer {
         let slug = manifest.configId
         let version = manifest.version
 
+        // Defense-in-depth: these three values become directory names under
+        // configs/. ManifestValidator (run inside verify, above) already blocks
+        // path-traversal via strict regexes, but guard again here — at the single
+        // point they first become filesystem paths — so a validator regression or
+        // future caller can never escape configs/.
+        do {
+            try InstallLayout.assertSafeComponents(author: author, slug: slug, version: version)
+        } catch {
+            cleanup()
+            throw error
+        }
+
         let versionDir = layout.versionDir(author: author, slug: slug, version: version)
 
         // 3. Immutability — republishing the same version is an error (§2).
@@ -361,18 +373,32 @@ public struct Installer {
 
         // POSIX rename(2): atomic same-filesystem replace. FileManager has no
         // atomic symlink-replace, so we drop to Darwin.
+        //
+        // Capture `errno` *inside* the closure, immediately after `rename`, before
+        // either `withUnsafeFileSystemRepresentation` closure exits: ARC teardown
+        // of the closure captures (and `strerror`/`String(cString:)` themselves)
+        // can make syscalls that reset `errno`, so reading it after the closures
+        // return can surface a stale, misleading "Success". A nil path
+        // representation means `rename` never ran — flag it separately rather than
+        // reporting a bogus errno string.
+        var pathUnrepresentable = false
+        var capturedErrno: Int32 = 0
         let result = tmpLink.withUnsafeFileSystemRepresentation { oldPtr -> Int32 in
-            guard let oldPtr else { return -1 }
+            guard let oldPtr else { pathUnrepresentable = true; return -1 }
             return layout.activeSymlink.withUnsafeFileSystemRepresentation { newPtr -> Int32 in
-                guard let newPtr else { return -1 }
-                return rename(oldPtr, newPtr)
+                guard let newPtr else { pathUnrepresentable = true; return -1 }
+                let r = rename(oldPtr, newPtr)
+                if r != 0 { capturedErrno = errno }
+                return r
             }
         }
         guard result == 0 else {
-            let err = String(cString: strerror(errno))
+            let detail = pathUnrepresentable
+                ? "active symlink path is not representable on the filesystem"
+                : String(cString: strerror(capturedErrno))
             try? FileManager.default.removeItem(at: tmpLink)
             rollbackActive()
-            throw VGError.io("could not atomically swap active symlink: \(err)")
+            throw VGError.io("could not atomically swap active symlink: \(detail)")
         }
     }
 

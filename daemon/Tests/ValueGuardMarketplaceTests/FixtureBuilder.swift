@@ -456,51 +456,13 @@ enum FixtureBuilder {
     /// `ManifestDigest.build(forExtractedDir:coveredMembers:)`, which now refuses
     /// any on-disk/declared mismatch. A symlink-member fixture built here is thus
     /// self-consistent against this digest yet must be rejected by the verifier.
+    ///
+    /// The implementation now lives in the library as ``Packer/signerDigest(forStagingDir:)``
+    /// so the producer-side digest walk has exactly one home shared between the
+    /// shipping `vg pack` path and these fixtures; this thin wrapper preserves the
+    /// existing call sites.
     static func signerDigest(forStagingDir dir: URL) throws -> Data {
-        let fm = FileManager.default
-        let root = dir.standardizedFileURL
-        let rootPath = root.path
-
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
-        guard let enumerator = fm.enumerator(
-            at: root,
-            includingPropertiesForKeys: keys,
-            options: [],
-            errorHandler: nil
-        ) else {
-            throw VGError.io("could not enumerate staging dir: \(rootPath)")
-        }
-
-        var relPaths: [String] = []
-        for case let fileURL as URL in enumerator {
-            let full = fileURL.standardizedFileURL.path
-            var prefix = rootPath
-            if !prefix.hasSuffix("/") { prefix += "/" }
-            let relative = full.hasPrefix(prefix) ? String(full.dropFirst(prefix.count)) : fileURL.lastPathComponent
-
-            if relative == "signatures" || relative.hasPrefix("signatures/") {
-                if relative == "signatures" { enumerator.skipDescendants() }
-                continue
-            }
-            let values = try? fileURL.resourceValues(forKeys: Set(keys))
-            if values?.isRegularFile == true {
-                relPaths.append(relative)
-            }
-        }
-
-        relPaths.sort { a, b in
-            Array(a.utf8).lexicographicallyPrecedes(Array(b.utf8))
-        }
-
-        var out = Data()
-        for rel in relPaths {
-            // Hash the file's bytes (following a symlink if `rel` is one — but a
-            // symlinked member is never *listed*, per the regular-file filter
-            // above, so this only ever hashes true regular files in practice).
-            let hex = try Hashing.sha256Hex(ofFileAt: dir.appendingPathComponent(rel))
-            out.append(Data((hex + "  " + rel + "\n").utf8))
-        }
-        return out
+        try Packer.signerDigest(forStagingDir: dir)
     }
 
     // MARK: - calibration.json synthesis
