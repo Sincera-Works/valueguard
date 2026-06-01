@@ -367,9 +367,12 @@ final class ConfigInstallCoordinator: ObservableObject {
     ///
     /// 1. `Installer.activate` updates the lockfile `active` field + flips the
     ///    `configs/active` symlink atomically.
-    /// 2. The activated version's `configs/<author>/<slug>/<version>/policy.bin`
-    ///    is **atomically copied** over the flat ``AppSupport/policyBinURL`` the
-    ///    daemon reads (write to a sibling temp, then `replaceItem`).
+    /// 2. The activated version's `policy.bin` **and** its sibling `policy.json`
+    ///    / `calibration.json` are **atomically copied** over the flat files under
+    ///    ``AppSupport`` (each via a temp + atomic rename). The daemon reads
+    ///    `policy.bin`; the app's Policy tab displays from `policy.json` and
+    ///    re-calibration reads `calibration.json`, so all three must move together
+    ///    or the UI shows a different policy than the daemon is running.
     /// 3. The injected ``onRestartDaemon`` closure restarts the daemon so it
     ///    reloads the new flat policy.
     ///
@@ -416,18 +419,35 @@ final class ConfigInstallCoordinator: ObservableObject {
                 // exists (throws VGError.io if pruned out from under us).
                 try installer.activate(author: author, slug: slug)
 
-                let sourcePolicy = layout
+                let versionDir = layout
                     .versionDir(author: author, slug: slug, version: lockedVersion)
-                    .appendingPathComponent("policy.bin", isDirectory: false)
+                let sourcePolicy = versionDir.appendingPathComponent("policy.bin", isDirectory: false)
 
                 guard FileManager.default.fileExists(atPath: sourcePolicy.path) else {
                     throw VGError.io(
                         "activated config is missing policy.bin at \(sourcePolicy.path)")
                 }
 
-                // Copy-on-activate: stage to a sibling temp then atomically
-                // replace the daemon's flat file so it is never half-written.
+                // Copy-on-activate: stage to a sibling temp then atomically replace
+                // the daemon's flat files so they are never half-written.
+                //
+                // The daemon reads `policy.bin`, but the app's Policy tab displays
+                // from the sibling `policy.json`, and re-calibration reads
+                // `calibration.json`. Copying ONLY policy.bin left the flat
+                // policy.json/calibration.json stale, so the daemon ran the new
+                // config while the UI still showed the old one. Copy all three so
+                // the flat tree the UI reads always matches what the daemon runs.
+                let flatDir = dest.deletingLastPathComponent()
                 try Self.atomicCopy(from: sourcePolicy, to: dest)
+                for sidecar in ["policy.json", "calibration.json"] {
+                    let src = versionDir.appendingPathComponent(sidecar, isDirectory: false)
+                    // policy.json is required in a bundle; calibration.json is too,
+                    // but guard defensively so a missing optional never aborts an
+                    // otherwise-good activation.
+                    if FileManager.default.fileExists(atPath: src.path) {
+                        try Self.atomicCopy(from: src, to: flatDir.appendingPathComponent(sidecar, isDirectory: false))
+                    }
+                }
             }.get()
         } catch {
             // Surface to the banner AND rethrow so the caller can react. Refresh
