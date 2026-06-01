@@ -3,6 +3,31 @@
 State-changing actions (build changes, signing swaps, policy revisions, model
 upgrades). Newest first.
 
+## 2026-06-01 — Sparkle auto-updater shipped; 0.3.0 released
+
+The Mac app now auto-updates (Sparkle 2.9.2), and the first Sparkle-enabled
+build is published.
+
+- **Sparkle integration** (PR #17, merged `f9927ca`): `UpdaterController` over
+  `SPUStandardUpdaterController`, "Check for Updates…" menubar item, daily
+  background checks. `SUFeedURL` → `valueguard-configs.pages.dev/appcast.xml`.
+  Non-sandboxed hardened-runtime app needs no extra entitlements. App + the
+  `package-release.sh` release flow (now EdDSA-signs the DMG + regenerates the
+  appcast, self-skipping without the key). No daemon changes.
+- **EdDSA signing key**: generated via Sparkle `generate_keys` on 2026-06-01.
+  Private key lives ONLY in the login Keychain (no disk/repo copy — **needs a
+  manual backup to a password manager; losing it breaks all future updates**).
+  Public key `BH+f4puEMMO7PLphkpRDGFFp+xTK7UPxfPYpaakZtL0=` (in `project.yml`).
+- **0.3.0 released** (PR #19 bumped version; release `app-v0.3.0`): notarized +
+  stapled DMG (93,030,914 B), EdDSA-signed. GitHub release is **Latest**.
+- **Feed live + verified end-to-end**: `appcast.xml` (signed 0.3.0 entry, PR #20)
+  deployed to Pages; the enclosure DMG downloads from GitHub at the exact
+  declared length (HTTP 200, 93030914 B). Chain confirmed: feed → enclosure →
+  notarized signed DMG.
+- **Activation note**: auto-update works from 0.3.0 onward. The 0.2.0 DMG
+  predates Sparkle, so 0.2.0→0.3.0 is a one-time manual install; 0.3.0→later is
+  automatic.
+
 ## 2026-06-01 — Marketplace + one-click install merged to main; site redeployed
 
 Both feature PRs landed on `main` and the live site was refreshed.
