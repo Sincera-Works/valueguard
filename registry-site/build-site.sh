@@ -74,6 +74,11 @@ cp "$SITE_DIR/index.html" "$OUT_DIR/index.html"
 cp "$REGISTRY_DIR/index.json" "$OUT_DIR/index.json"
 cp -R "$REGISTRY_DIR/bundles" "$OUT_DIR/bundles"
 cp -R "$REGISTRY_DIR/configs" "$OUT_DIR/configs"
+# The Sparkle update feed (app auto-updater). Served at /appcast.xml, which is
+# the SUFeedURL baked into the app's Info.plist. Updated by package-release.sh.
+if [ -f "$SITE_DIR/appcast.xml" ]; then
+  cp "$SITE_DIR/appcast.xml" "$OUT_DIR/appcast.xml"
+fi
 
 COUNT="$(/usr/bin/python3 -c "import json;print(len(json.load(open('$OUT_DIR/index.json'))['configs']))" 2>/dev/null || echo '?')"
 BYTES="$(du -sh "$OUT_DIR" | cut -f1)"

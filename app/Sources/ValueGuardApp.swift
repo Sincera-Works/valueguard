@@ -24,6 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var auditTailer: AuditLogTailer?
     private var actionDispatcher: ActionDispatcher?
     private var emergencyHotkey: EmergencyHotkey?
+    /// The Sparkle auto-updater. Retained here for the app's lifetime so its
+    /// scheduled background checks keep running; the menubar's "Check for
+    /// Updates…" item drives a user-initiated check through it.
+    private var updater: UpdaterController?
     /// Owns the marketplace install/activate/list lifecycle, shared with the
     /// Configs settings tab and driven directly by `vgconfig://` URL opens.
     private var configCoordinator: ConfigInstallCoordinator?
@@ -79,11 +83,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actionDispatcher?.emergencyDismiss()
         }
         emergencyHotkey.register()
+        // Build the Sparkle updater with the background scheduler running
+        // (startingUpdater: true). All config (feed URL, public key, check
+        // cadence) is read from Info.plist; see UpdaterController.
+        let updater = UpdaterController(startingUpdater: true)
         let menubar = MenubarController(
             host: host,
             openOnboarding: { [weak onboarding] in onboarding?.present() },
             openSettings: { [weak settingsWindow] in settingsWindow?.present() },
-            onEmergencyDismiss: { [weak actionDispatcher] in actionDispatcher?.emergencyDismiss() }
+            onEmergencyDismiss: { [weak actionDispatcher] in actionDispatcher?.emergencyDismiss() },
+            checkForUpdates: { [weak updater] in updater?.checkForUpdates() }
         )
         host.onStatusChange = { [weak menubar] status in
             Task { @MainActor in menubar?.apply(status: status) }
@@ -134,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.auditTailer = auditTailer
         self.actionDispatcher = actionDispatcher
         self.emergencyHotkey = emergencyHotkey
+        self.updater = updater
         self.configCoordinator = configCoordinator
 
         // Replay a vgconfig:// URL that arrived during a cold launch (before the
