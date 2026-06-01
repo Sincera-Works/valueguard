@@ -389,17 +389,22 @@ final class ConfigInstallCoordinator: ObservableObject {
                 let layout = try InstallLayout()
                 let installer = Installer(layout: layout)
 
-                // Update lockfile + symlink first; this also validates the
-                // version dir exists (throws VGError.io if pruned out from under
-                // us).
-                try installer.activate(author: author, slug: slug)
-
-                // Resolve the just-activated version's policy.bin from the layout.
+                // Resolve the installed version BEFORE activating. Reading it
+                // after `installer.activate` (which rewrites the lockfile) opened
+                // a narrow window: an external `vg uninstall` could prune the
+                // entry between the two reads, yielding a misleading
+                // `notInstalled` for a config that just activated. Reading first
+                // — where the entry is guaranteed present — removes that window.
                 let lockedVersion = try Self.installedVersion(
                     installer: installer,
                     author: author,
                     slug: slug
                 )
+
+                // Update lockfile + symlink; this also validates the version dir
+                // exists (throws VGError.io if pruned out from under us).
+                try installer.activate(author: author, slug: slug)
+
                 let sourcePolicy = layout
                     .versionDir(author: author, slug: slug, version: lockedVersion)
                     .appendingPathComponent("policy.bin", isDirectory: false)
@@ -453,10 +458,18 @@ final class ConfigInstallCoordinator: ObservableObject {
         guard !isBusy else {
             throw VGError.io("can't uninstall while another operation is in progress")
         }
-        try await Self.runBlocking {
-            let layout = try InstallLayout()
-            try Installer(layout: layout).uninstall(author: author, slug: slug)
-        }.get()
+        do {
+            try await Self.runBlocking {
+                let layout = try InstallLayout()
+                try Installer(layout: layout).uninstall(author: author, slug: slug)
+            }.get()
+        } catch {
+            // Surface to the status banner AND rethrow. Without setting `.failed`
+            // the user got no feedback at all — the row stayed in the list and the
+            // view's catch only NSLog'd. Mirrors the activate() error handling.
+            state = .failed(message: Self.message(for: error))
+            throw error
+        }
         refresh()
     }
 
