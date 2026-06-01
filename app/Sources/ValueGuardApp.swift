@@ -206,8 +206,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let coordinator = configCoordinator else {
             // Cold launch via the link: setup hasn't finished wiring the
             // coordinator yet. Stash the URL; applicationDidFinishLaunching
-            // replays it once setup completes, so the intent isn't lost.
-            pendingConfigURL = url
+            // replays it once setup completes, so the intent isn't lost. Only one
+            // pending slot — if macOS delivers several at once, keep the first
+            // (the coordinator handles one install at a time anyway; the user can
+            // re-click the others).
+            if pendingConfigURL == nil { pendingConfigURL = url }
             return
         }
 

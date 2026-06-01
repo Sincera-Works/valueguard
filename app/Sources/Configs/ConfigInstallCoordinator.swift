@@ -89,6 +89,10 @@ final class ConfigInstallCoordinator: ObservableObject {
         case awaitingConfirmation(ConfirmationInfo)
         /// `Installer.install` is running over the confirmed bundle.
         case installing
+        /// `Installer.activate` + copy-on-activate is running. A distinct busy
+        /// state (not a borrowed `.installing`) so the UI disables row actions
+        /// during activation and a second Activate can't race the lockfile.
+        case activating
         /// The most recent install succeeded; carries the installed ref.
         case installed(ref: String)
         /// Any step failed; carries a human-readable message for the UI.
@@ -96,7 +100,8 @@ final class ConfigInstallCoordinator: ObservableObject {
 
         static func == (lhs: State, rhs: State) -> Bool {
             switch (lhs, rhs) {
-            case (.idle, .idle), (.resolving, .resolving), (.installing, .installing):
+            case (.idle, .idle), (.resolving, .resolving), (.installing, .installing),
+                 (.activating, .activating):
                 return true
             case let (.awaitingConfirmation(a), .awaitingConfirmation(b)):
                 return a.ref == b.ref && a.bundleTempURL == b.bundleTempURL
@@ -233,7 +238,17 @@ final class ConfigInstallCoordinator: ObservableObject {
             }
 
             let manifest = report.manifest
-            let resolvedRef = "\(resolved.config.author)/\(resolved.config.slug)@\(resolved.version.version)"
+            // The registry index and the bundle's own manifest both carry a
+            // version; they must agree, or the sheet (index version) and the
+            // installed row (manifest version) would disagree. The manifest is
+            // authoritative (it's what the verifier actually checked), so assert
+            // equality and build the displayed ref from the manifest version.
+            guard resolved.version.version == manifest.version else {
+                throw VGError.crossCheck(
+                    "registry index version \(resolved.version.version) disagrees with "
+                    + "bundle manifest version \(manifest.version)")
+            }
+            let resolvedRef = "\(resolved.config.author)/\(resolved.config.slug)@\(manifest.version)"
             let categories = manifest.categories.map { entry in
                 ConfirmationInfo.Category(
                     categoryID: entry.id,
@@ -359,6 +374,16 @@ final class ConfigInstallCoordinator: ObservableObject {
     ///   to the view (which surfaces it) *before* any restart, so a failed copy
     ///   never restarts the daemon onto a stale/half-written policy.
     func activate(author: String, slug: String) async throws {
+        // Reentrancy guard: two rapid Activate clicks (or a programmatic caller)
+        // must not run concurrent `Installer.activate` calls — they write the
+        // same `lockfile.json` with no cross-process lock and could corrupt it or
+        // leave the wrong config marked active. Only start from idle; transition
+        // to a busy state across the await so the UI disables the buttons.
+        guard case .idle = state else {
+            throw VGError.io("can't activate while another operation is in progress")
+        }
+        state = .activating
+
         let restart = onRestartDaemon
         let dest = flatPolicyURL
 
@@ -405,9 +430,9 @@ final class ConfigInstallCoordinator: ObservableObject {
         // Restart on the main actor (the daemon host is MainActor-isolated).
         restart()
         refresh()
-        // Clear any stale terminal banner (e.g. a prior `.failed`) now that an
-        // activation has succeeded, so the UI doesn't keep showing an old error.
-        if case .failed = state { state = .idle }
+        // Return to idle on success: clears the `.activating` busy state (and any
+        // stale `.failed` banner from a prior attempt) so the UI settles.
+        state = .idle
     }
 
     // MARK: - Uninstall
@@ -438,12 +463,14 @@ final class ConfigInstallCoordinator: ObservableObject {
         refresh()
     }
 
-    /// Whether a resolve/install/activate is in flight — used to gate
-    /// lockfile-mutating operations (uninstall) from racing them.
+    /// Whether an operation that could mutate `lockfile.json` (or is about to) is
+    /// in flight — used to gate other lockfile-mutating operations from racing.
+    /// Includes `.awaitingConfirmation`: a pending confirm is one tap away from
+    /// `confirmInstall()`, so a programmatic uninstall in that window would race.
     var isBusy: Bool {
         switch state {
-        case .resolving, .installing: return true
-        case .idle, .awaitingConfirmation, .installed, .failed: return false
+        case .resolving, .installing, .activating, .awaitingConfirmation: return true
+        case .idle, .installed, .failed: return false
         }
     }
 
@@ -548,18 +575,26 @@ final class ConfigInstallCoordinator: ObservableObject {
         // A nil file-system representation (path not representable) means rename
         // was never called, so `errno` would be stale — distinguish that case
         // with a sentinel rather than reporting a misleading "Success".
+        //
+        // Capture `errno` *inside* the closure, immediately after `rename`, before
+        // either `withUnsafeFileSystemRepresentation` closure exits: ARC teardown
+        // of the closure captures can itself make syscalls that reset `errno`, so
+        // reading it after the closures return can surface a stale "Success".
         var pathUnrepresentable = false
+        var capturedErrno: Int32 = 0
         let result = staging.withUnsafeFileSystemRepresentation { oldPtr -> Int32 in
             guard let oldPtr else { pathUnrepresentable = true; return -1 }
             return dest.withUnsafeFileSystemRepresentation { newPtr -> Int32 in
                 guard let newPtr else { pathUnrepresentable = true; return -1 }
-                return rename(oldPtr, newPtr)
+                let r = rename(oldPtr, newPtr)
+                if r != 0 { capturedErrno = errno }
+                return r
             }
         }
         guard result == 0 else {
             let detail = pathUnrepresentable
                 ? "path is not representable on the filesystem"
-                : String(cString: strerror(errno))
+                : String(cString: strerror(capturedErrno))
             try? fm.removeItem(at: staging)
             throw VGError.io("could not install policy.bin at \(dest.path): \(detail)")
         }

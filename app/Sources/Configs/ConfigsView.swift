@@ -86,6 +86,9 @@ struct ConfigsView: View {
         case .installing:
             Label("Installing…", systemImage: "square.and.arrow.down")
                 .font(.caption).foregroundStyle(.secondary)
+        case .activating:
+            Label("Activating…", systemImage: "bolt.horizontal.circle")
+                .font(.caption).foregroundStyle(.secondary)
         case .installed(let ref):
             HStack {
                 Label("Installed \(ref)", systemImage: "checkmark.seal.fill")
@@ -111,10 +114,11 @@ struct ConfigsView: View {
         }
     }
 
-    /// Whether a resolve/install is in flight (install button + field disabled).
+    /// Whether an operation is in flight (install button + field + row actions
+    /// disabled). Mirrors the coordinator's busy notion.
     private var isBusy: Bool {
         switch coordinator.state {
-        case .resolving, .installing, .awaitingConfirmation: return true
+        case .resolving, .installing, .activating, .awaitingConfirmation: return true
         case .idle, .installed, .failed: return false
         }
     }
