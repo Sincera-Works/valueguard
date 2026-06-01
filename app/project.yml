@@ -55,8 +55,8 @@ targets:
         LSUIElement: true
         CFBundleName: ValueGuard
         CFBundleDisplayName: ValueGuard
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "2"
         NSScreenCaptureUsageDescription: ValueGuard analyzes on-screen content locally to filter what you have asked to filter. No frame data leaves your machine.
         NSHumanReadableCopyright: "© 2026 Sincera Works"
         LSMinimumSystemVersion: "14.0"
