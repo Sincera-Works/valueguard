@@ -28,6 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Configs settings tab and driven directly by `vgconfig://` URL opens.
     private var configCoordinator: ConfigInstallCoordinator?
 
+    /// A `vgconfig://` URL delivered before `applicationDidFinishLaunching`
+    /// finished wiring `configCoordinator` (a cold launch *via* the link). It is
+    /// stashed here and replayed once setup completes, so a cold-start install
+    /// intent is never silently dropped.
+    private var pendingConfigURL: URL?
+
     /// Whether Screen Recording was already granted when *this* process launched.
     /// macOS only honors a freshly-granted Screen Recording permission for a new
     /// process launch, so if the grant flips from false→true during onboarding we
@@ -129,6 +135,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.actionDispatcher = actionDispatcher
         self.emergencyHotkey = emergencyHotkey
         self.configCoordinator = configCoordinator
+
+        // Replay a vgconfig:// URL that arrived during a cold launch (before the
+        // coordinator existed), so a launch-via-link install isn't dropped.
+        if let pending = pendingConfigURL {
+            pendingConfigURL = nil
+            handleConfigURL(pending)
+        }
     }
 
     // MARK: - vgconfig:// URL handling (one-click install)
@@ -151,8 +164,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// behind the explicit confirmation sheet. Malformed URLs are logged and
     /// ignored — never crash.
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls {
-            handleConfigURL(url)
+        // `NSApplicationDelegate` is main-actor in practice, but the protocol
+        // requirement carries no isolation annotation; assert main-actor
+        // explicitly so the `@MainActor` routing below is isolation-clean under
+        // strict concurrency (mirrors `onboarding.onFinish`).
+        MainActor.assumeIsolated {
+            for url in urls {
+                handleConfigURL(url)
+            }
         }
     }
 
@@ -185,7 +204,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } ?? RegistryClient.defaultRegistryBase
 
         guard let coordinator = configCoordinator else {
-            NSLog("ValueGuard: config coordinator not ready for \(url.absoluteString)")
+            // Cold launch via the link: setup hasn't finished wiring the
+            // coordinator yet. Stash the URL; applicationDidFinishLaunching
+            // replays it once setup completes, so the intent isn't lost.
+            pendingConfigURL = url
             return
         }
 

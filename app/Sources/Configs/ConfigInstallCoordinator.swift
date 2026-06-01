@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import ValueGuardMarketplace
 
 /// Owns the install / verify / activate / uninstall lifecycle for marketplace
@@ -39,6 +40,10 @@ final class ConfigInstallCoordinator: ObservableObject {
         var id: String { ref }
         /// The canonical `author/slug@version` reference being offered.
         let ref: String
+        /// The registry base URL the bundle was fetched from, surfaced in the
+        /// sheet so the user can see *where* it came from — a link to
+        /// `evil.example.com` must not look identical to the canonical registry.
+        let registryBase: String
         /// Author handle (`manifest.author.handle`).
         let author: String
         /// Author display name, if the manifest carries one.
@@ -154,14 +159,29 @@ final class ConfigInstallCoordinator: ObservableObject {
     ///   - ref: an `author/slug[@version]` reference (may arrive URL-encoded
     ///     from a `vgconfig://` open — decode before calling).
     func resolveForConfirmation(registry: String, ref: String) async {
+        // Reentrancy guard: `application(_:open:)` can deliver multiple
+        // `vgconfig://` URLs in one delegate call, and each `await` below is a
+        // suspension point. Only start a resolve from a clean state — otherwise a
+        // second call would overwrite an `.awaitingConfirmation` (orphaning its
+        // downloaded temp bundle) or stomp an in-flight resolve. A second link is
+        // simply dropped; the user re-clicks after dealing with the first.
+        guard case .idle = state else {
+            NSLog("ValueGuard: ignoring install request for '\(ref)' — another is in progress")
+            return
+        }
         state = .resolving
 
         guard let parsed = Self.parseRef(ref) else {
             state = .failed(message: "Couldn't parse config reference '\(ref)'. Expected author/slug[@version].")
             return
         }
-        guard let baseURL = URL(string: registry) else {
-            state = .failed(message: "Invalid registry URL '\(registry)'.")
+        // SECURITY: the registry base arrives from an attacker-influenceable
+        // `vgconfig://` link. `RegistryClient` supports `file://` for offline
+        // tests, so an unvalidated base would let a webpage point the app at
+        // `file:///…` and read arbitrary local files the user can read — *before*
+        // any verification runs. Only allow https (and http for localhost dev).
+        guard let baseURL = URL(string: registry), Self.isAllowedRegistryScheme(baseURL) else {
+            state = .failed(message: "Refusing registry '\(registry)': only https registries are allowed.")
             return
         }
 
@@ -170,56 +190,70 @@ final class ConfigInstallCoordinator: ObservableObject {
         // it off the main actor to keep the UI responsive, then hop back to
         // publish state.
         let result: Result<ConfirmationInfo, Error> = await Task.detached(priority: .userInitiated) {
-            do {
-                let client = RegistryClient(baseURL: baseURL)
-                let (bundleURL, resolved) = try client.resolveAndDownload(
-                    author: parsed.author,
-                    slug: parsed.slug,
-                    version: parsed.version
-                )
-                // Full offline verify over the downloaded bytes — signature,
-                // cross-checks, manifest digest — independent of the index sha
-                // `RegistryClient` already enforced. The extracted temp dir is
-                // not needed here (install re-extracts), so remove it.
-                let (report, extractedDir) = try BundleVerifier.verify(bundleAt: bundleURL)
-                try? FileManager.default.removeItem(at: extractedDir)
+            let client = RegistryClient(baseURL: baseURL)
+            let (bundleURL, resolved) = try client.resolveAndDownload(
+                author: parsed.author,
+                slug: parsed.slug,
+                version: parsed.version
+            )
+            // From here a downloaded temp bundle exists. Any throw (a failing
+            // verify, an identity mismatch, …) must not leak it; only the success
+            // path that hands the URL to `ConfirmationInfo` clears this flag.
+            var keepBundle = false
+            defer { if !keepBundle { try? FileManager.default.removeItem(at: bundleURL) } }
 
-                let manifest = report.manifest
-                let resolvedRef = "\(resolved.config.author)/\(resolved.config.slug)@\(resolved.version.version)"
-                let categories = manifest.categories.map { entry in
-                    ConfirmationInfo.Category(
-                        categoryID: entry.id,
-                        action: entry.action,
-                        shortDescription: entry.shortDescription
-                    )
-                }
-                let info = ConfirmationInfo(
-                    ref: resolvedRef,
-                    author: manifest.author.handle,
-                    authorDisplayName: manifest.author.displayName,
-                    fingerprint: report.authorFingerprint,
-                    version: manifest.version,
-                    categories: categories,
-                    verifyPassed: report.allPassed,
-                    bundleTempURL: bundleURL
-                )
-
-                // A verify failure must never reach an "installable" confirm
-                // sheet: surface it as an error with the failing check details.
-                guard report.allPassed else {
-                    let failed = report.checks
-                        .filter { !$0.ok }
-                        .map { check in
-                            check.detail.map { "\(check.label): \($0)" } ?? check.label
-                        }
-                        .joined(separator: "; ")
-                    try? FileManager.default.removeItem(at: bundleURL)
-                    throw VGError.signatureInvalid("verification failed: \(failed)")
-                }
-                return info
-            } catch {
-                throw error
+            // SECURITY: the resolved author/slug come from the registry's own
+            // index.json (attacker-controlled). Assert they match what the link
+            // asked for, so a malicious registry can't serve `evil/policy` while
+            // claiming to be `trusted/policy` in the confirm sheet.
+            guard resolved.config.author == parsed.author,
+                  resolved.config.slug == parsed.slug else {
+                throw VGError.crossCheck(
+                    "registry returned \(resolved.config.author)/\(resolved.config.slug) "
+                    + "for requested \(parsed.author)/\(parsed.slug)")
             }
+
+            // Full offline verify over the downloaded bytes — signature,
+            // cross-checks, manifest digest — independent of the index sha
+            // `RegistryClient` already enforced. The extracted temp dir is not
+            // needed here (install re-extracts), so remove it.
+            let (report, extractedDir) = try BundleVerifier.verify(bundleAt: bundleURL)
+            try? FileManager.default.removeItem(at: extractedDir)
+
+            // A verify failure must never reach an "installable" confirm sheet:
+            // surface it as an error with the failing check details.
+            guard report.allPassed else {
+                let failed = report.checks
+                    .filter { !$0.ok }
+                    .map { check in
+                        check.detail.map { "\(check.label): \($0)" } ?? check.label
+                    }
+                    .joined(separator: "; ")
+                throw VGError.signatureInvalid("verification failed: \(failed)")
+            }
+
+            let manifest = report.manifest
+            let resolvedRef = "\(resolved.config.author)/\(resolved.config.slug)@\(resolved.version.version)"
+            let categories = manifest.categories.map { entry in
+                ConfirmationInfo.Category(
+                    categoryID: entry.id,
+                    action: entry.action,
+                    shortDescription: entry.shortDescription
+                )
+            }
+            // The bundle is handed to the confirm sheet — retain it past the defer.
+            keepBundle = true
+            return ConfirmationInfo(
+                ref: resolvedRef,
+                registryBase: registry,
+                author: manifest.author.handle,
+                authorDisplayName: manifest.author.displayName,
+                fingerprint: report.authorFingerprint,
+                version: manifest.version,
+                categories: categories,
+                verifyPassed: report.allPassed,
+                bundleTempURL: bundleURL
+            )
         }.result
 
         switch result {
@@ -411,6 +445,23 @@ final class ConfigInstallCoordinator: ObservableObject {
         return (author: parts[0], slug: parts[1], version: version)
     }
 
+    /// Whether a registry base URL is allowed for a (possibly attacker-supplied)
+    /// install request. Only `https` is permitted in general; `http` is allowed
+    /// solely for loopback dev (`localhost` / `127.0.0.1` / `::1`). Critically
+    /// this rejects `file://`, which `RegistryClient` otherwise supports and which
+    /// would let a crafted `vgconfig://` link read arbitrary local files.
+    static func isAllowedRegistryScheme(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "https":
+            return true
+        case "http":
+            let host = url.host?.lowercased()
+            return host == "localhost" || host == "127.0.0.1" || host == "::1"
+        default:
+            return false
+        }
+    }
+
     /// Look up the on-disk installed version of `author/slug` from the lockfile
     /// (via `Installer.list()`), so copy-on-activate copies the exact version
     /// the activate just pointed at.
@@ -431,11 +482,13 @@ final class ConfigInstallCoordinator: ObservableObject {
 
     /// Atomically replace `dest` with the contents of `src`.
     ///
-    /// `FileManager.replaceItemAt` performs an atomic swap when possible (and a
-    /// safe copy+rename otherwise), so the daemon's flat `policy.bin` is never
-    /// observed truncated or half-written. We stage to a sibling temp in the
-    /// destination directory (same volume, so the rename stays atomic) then
-    /// replace.
+    /// We stage to a sibling temp in the destination directory (same volume) then
+    /// `rename(2)` it over `dest`. POSIX `rename` atomically replaces the target
+    /// whether or not it already exists — so there is no `fileExists`→move TOCTOU
+    /// window (a concurrently-created flat file can't make this fail), and no
+    /// first-activation special case. This is the same atomic-swap primitive the
+    /// marketplace library uses for the `configs/active` symlink. The daemon's
+    /// flat `policy.bin` is never observed truncated or half-written.
     private nonisolated static func atomicCopy(from src: URL, to dest: URL) throws {
         let fm = FileManager.default
         let destDir = dest.deletingLastPathComponent()
@@ -458,17 +511,19 @@ final class ConfigInstallCoordinator: ObservableObject {
             throw VGError.io("could not stage policy.bin: \(error.localizedDescription)")
         }
 
-        do {
-            if fm.fileExists(atPath: dest.path) {
-                // Atomic replace of an existing flat policy.
-                _ = try fm.replaceItemAt(dest, withItemAt: staging)
-            } else {
-                // No prior flat policy — a plain move is already atomic here.
-                try fm.moveItem(at: staging, to: dest)
+        // Atomic, existence-agnostic replace via rename(2). FileManager has no
+        // atomic move-with-overwrite, so drop to Darwin.
+        let result = staging.withUnsafeFileSystemRepresentation { oldPtr -> Int32 in
+            guard let oldPtr else { return -1 }
+            return dest.withUnsafeFileSystemRepresentation { newPtr -> Int32 in
+                guard let newPtr else { return -1 }
+                return rename(oldPtr, newPtr)
             }
-        } catch {
+        }
+        guard result == 0 else {
+            let err = String(cString: strerror(errno))
             try? fm.removeItem(at: staging)
-            throw VGError.io("could not install policy.bin at \(dest.path): \(error.localizedDescription)")
+            throw VGError.io("could not install policy.bin at \(dest.path): \(err)")
         }
     }
 

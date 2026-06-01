@@ -1,6 +1,12 @@
 import SwiftUI
 import ValueGuardMarketplace
 
+private extension InstalledConfig {
+    /// Stable per-config identity for SwiftUI lists: `author/slug`. (The
+    /// fingerprint is per-author and collides across an author's configs.)
+    var installRef: String { "\(author)/\(slug)" }
+}
+
 /// The "Configs" settings tab: browse / install / activate / uninstall
 /// marketplace config policies, and the confirmation surface for one-click
 /// (`vgconfig://`) installs.
@@ -33,14 +39,12 @@ struct ConfigsView: View {
             footer
         }
         .padding()
-        .sheet(isPresented: confirmationBinding) {
-            if case .awaitingConfirmation(let info) = coordinator.state {
-                ConfigConfirmSheet(
-                    info: info,
-                    onInstall: { Task { await coordinator.confirmInstall() } },
-                    onCancel: { coordinator.cancelConfirmation() }
-                )
-            }
+        .sheet(item: confirmationItem) { info in
+            ConfigConfirmSheet(
+                info: info,
+                onInstall: { Task { await coordinator.confirmInstall() } },
+                onCancel: { coordinator.cancelConfirmation() }
+            )
         }
         .onAppear { coordinator.refresh() }
     }
@@ -123,7 +127,11 @@ struct ConfigsView: View {
             if coordinator.installedConfigs.isEmpty {
                 emptyState
             } else {
-                List(coordinator.installedConfigs, id: \.fingerprint) { config in
+                // Identify by author/slug, not fingerprint: the fingerprint is the
+                // author's *key* and is shared by every config from that author, so
+                // keying on it collides for `alice/work` + `alice/home` and breaks
+                // SwiftUI diffing (Activate/Uninstall could fire on the wrong row).
+                List(coordinator.installedConfigs, id: \.installRef) { config in
                     InstalledConfigRow(
                         config: config,
                         onActivate: { activate(config) },
@@ -163,13 +171,21 @@ struct ConfigsView: View {
 
     // MARK: - Footer
 
+    @ViewBuilder
     private var footer: some View {
         HStack {
-            Link(
-                "Browse the registry",
-                destination: URL(string: registryBase)!
-            )
-            .font(.caption)
+            // Guard the URL parse rather than force-unwrap: `registryBase` is a
+            // constant today, but a force-unwrap would crash the whole tab at
+            // render time if it were ever changed to a non-URL string.
+            if let registryURL = URL(string: registryBase) {
+                Link("Browse the registry", destination: registryURL)
+                    .font(.caption)
+            } else {
+                Text(registryBase)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
             Spacer()
             Text("Installs are verified offline before they can change your filter.")
                 .font(.caption).foregroundStyle(.tertiary)
@@ -178,16 +194,20 @@ struct ConfigsView: View {
 
     // MARK: - Sheet binding
 
-    /// A `Bool` binding derived from the coordinator state: `true` exactly while
-    /// awaiting confirmation. Dismissing the sheet (set `false`) cancels.
-    private var confirmationBinding: Binding<Bool> {
+    /// An optional-`ConfirmationInfo` binding for `sheet(item:)`: non-nil exactly
+    /// while awaiting confirmation. Using `sheet(item:)` (rather than
+    /// `isPresented:` + a re-read of the state inside the builder) avoids the race
+    /// where the state advances to `.installing` between the present flip and the
+    /// content closure running, which would otherwise render a blank modal.
+    /// Setting it to nil (dismiss) cancels.
+    private var confirmationItem: Binding<ConfigInstallCoordinator.ConfirmationInfo?> {
         Binding(
             get: {
-                if case .awaitingConfirmation = coordinator.state { return true }
-                return false
+                if case .awaitingConfirmation(let info) = coordinator.state { return info }
+                return nil
             },
-            set: { presented in
-                if !presented { coordinator.cancelConfirmation() }
+            set: { newValue in
+                if newValue == nil { coordinator.cancelConfirmation() }
             }
         )
     }
@@ -300,6 +320,16 @@ private struct ConfigConfirmSheet: View {
                     .textSelection(.enabled)
                 Text("(first 16 hex of the author's signing key — trust on first use)")
                     .font(.caption2).foregroundStyle(.tertiary)
+            }
+            // Surface WHERE the bundle came from — a link to a look-alike
+            // registry must not present an identical sheet to the canonical one.
+            HStack(spacing: 6) {
+                Text("From").font(.caption).foregroundStyle(.secondary)
+                Text(info.registryBase)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(1).truncationMode(.middle)
             }
         }
     }
