@@ -3,6 +3,37 @@
 State-changing actions (build changes, signing swaps, policy revisions, model
 upgrades). Newest first.
 
+## 2026-06-01 — 0.3.2: caption-anchored calibration + Screen Recording prompt fix (released)
+
+Two fixes (PR #26), released as `app-v0.3.2` (build 5, notarized; appcast #27).
+
+- **Caption-anchored calibration** (design: `docs/CALIBRATION-POSITIVES.md`). The
+  in-app Bayesian calibrator fetched positive sample images from Wikimedia
+  Commons, which by design hosts none of the explicit content these configs
+  filter → `0 positives`, broken fit. Now, when the positive IMAGE corpus is
+  empty, it re-embeds the category's `positive_captions` on-device via the
+  SigLIP-2 text encoder and scores each against `posVec` (same dot-with-posVec
+  the image path uses). No images / no network for positives — stays within the
+  threat-model line. UI labels it ("N caption anchors" + info banner).
+  **Verified live** in the running app.
+- **No Screen Recording re-prompt on Apply**. `ScreenCapture.requestPermission()`
+  ran `SCShareableContent.current` on every daemon (re)start — which Apply
+  triggers — poking TCC and re-prompting even when granted. Now preflights with
+  the non-prompting `CGPreflightScreenCaptureAccess()` and returns early when
+  granted. **Caveat: validated by reading only** — TCC keys permission to the
+  notarized cdhash, so ad-hoc/dev builds are never granted and always prompt
+  (this cost two invalid test rounds before I recognized it). Real confirmation
+  is post-install: grant once on 0.3.2, then Apply should not re-prompt. If it
+  still does, the cause is the in-process daemon restart itself, and the fix is
+  to make Apply hot-reload policy without restarting capture (deferred).
+- **Release-infra note:** the `valueguard-notary` keychain credential went
+  missing mid-session (cause unknown), failing the first 0.3.2 notarization;
+  re-created with `notarytool store-credentials`. Both the notary app-specific
+  password AND the Sparkle EdDSA key live only in the login keychain — back them
+  up to a password manager (release-critical, single copy).
+
+## 2026-06-01 — 0.3.1: config-activation fixes (released)
+
 ## 2026-06-01 — 0.3.1: config-activation fixes (released)
 
 Bug report (with screenshots): activating a marketplace config "did nothing".
