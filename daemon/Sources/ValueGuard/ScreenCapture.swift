@@ -1,11 +1,19 @@
 import Foundation
 import CoreGraphics
 import CoreVideo
-@preconcurrency import ScreenCaptureKit
+import AppKit
 
-/// Metadata about a captured window. Holds no SCK references — those are scoped
-/// to the capture call itself, because SCWindow references go stale as soon as
-/// the parent SCShareableContent is deallocated.
+/// Metadata about a captured window.
+///
+/// Enumeration and pixel capture both go through the CoreGraphics window-list
+/// APIs (`CGWindowListCopyWindowInfo` / `CGWindowListCreateImage`), NOT
+/// ScreenCaptureKit. `SCShareableContent.current` was previously used for
+/// enumeration, but on macOS 26 it surfaces the Screen Recording permission
+/// prompt on *every* call — even when access is already granted — so every
+/// daemon (re)start (e.g. the Settings "Apply" restart) re-prompted the user.
+/// The CG window-list returns all the metadata we use (owner name, bundle id via
+/// PID, bounds, layer, on-screen, window id) without prompting; the pixel grab
+/// still requires the Screen Recording grant but does not raise that prompt.
 public struct MonitoredWindow: Sendable {
     /// Stable per-session window ID. Survives until the window is closed.
     public let windowID: UInt32
@@ -86,57 +94,73 @@ public actor ScreenCapture {
     }
 
     public func requestPermission() async throws {
-        // Preflight with the NON-prompting CG check first. `SCShareableContent.current`
-        // actively pokes the TCC system and can surface the Screen Recording prompt
-        // even when access is already granted — so calling it on every daemon
-        // (re)start (e.g. after the Settings "Apply" restart) re-prompts the user
-        // each time. When preflight says we already have access, return immediately
-        // and never touch SCShareableContent here; the actual capture path
-        // exercises it during normal ticks.
+        // Non-prompting preflight only. We deliberately never call
+        // `SCShareableContent.current` here: on macOS 26 it pops the Screen
+        // Recording prompt even when access is already granted, so doing it on
+        // every daemon (re)start re-prompted the user. `CGPreflightScreenCaptureAccess()`
+        // reports the grant state silently. When not granted, surface a clear
+        // message and throw — the app's onboarding owns the actual request flow
+        // (`CGRequestScreenCaptureAccess`, which only matters on first launch).
         if CGPreflightScreenCaptureAccess() {
             return
         }
-        // Not granted: probe via SCShareableContent so a genuine denial throws with
-        // a clear message (CGRequestScreenCaptureAccess only matters on first-ever
-        // launch; the app's onboarding owns that flow).
-        do {
-            _ = try await SCShareableContent.current
-        } catch {
-            FileHandle.standardError.write(Data(
-                "valueguard: Screen Recording permission required. Grant in System Settings → Privacy & Security → Screen Recording, then re-run.\n".utf8
-            ))
-            throw error
-        }
+        FileHandle.standardError.write(Data(
+            "valueguard: Screen Recording permission required. Grant in System Settings → Privacy & Security → Screen Recording, then re-run.\n".utf8
+        ))
+        throw NSError(
+            domain: "works.sincera.valueguard.capture",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Screen Recording permission not granted."]
+        )
     }
 
     /// Enumerate and capture every on-screen window that passes the filter.
     ///
-    /// Uses `SCShareableContent` for enumeration (modern, gives us app names +
-    /// bundle IDs) and the deprecated `CGWindowListCreateImage` for the
-    /// per-window pixel grab. SCK's `SCContentFilter(desktopIndependentWindow:)`
-    /// raises an uncatchable ObjC exception on macOS 26 for ordinary
-    /// (non-floating) windows, so it's not usable for our purpose.
-    /// `CGWindowListCreateImage` is what the reference Python spec uses too.
+    /// Enumeration uses `CGWindowListCopyWindowInfo` (not ScreenCaptureKit): it
+    /// returns the same metadata we need — window number, owner name/PID, bounds,
+    /// layer, on-screen flag — WITHOUT triggering the macOS 26 Screen Recording
+    /// prompt that `SCShareableContent.current` raises on every call. The
+    /// per-window pixel grab still uses `CGWindowListCreateImage`, which requires
+    /// the Screen Recording grant (returns a null image when not granted) but does
+    /// not itself raise the prompt. Bundle id is resolved from the owner PID via
+    /// `NSRunningApplication`.
     public func captureMonitoredWindows(filter: CaptureFilter) async throws -> [CapturedFrame] {
-        let content = try await SCShareableContent.current
-        var frames: [CapturedFrame] = []
-        for window in content.windows {
-            guard window.frame.width > 1, window.frame.height > 1 else { continue }
-            guard window.windowLayer == 0 else { continue }
-            guard window.isOnScreen else { continue }
+        // On-screen, real windows only; exclude desktop/Dock elements.
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
 
-            let appName = window.owningApplication?.applicationName ?? ""
-            let bundleID = window.owningApplication?.bundleIdentifier
+        var frames: [CapturedFrame] = []
+        for info in infoList {
+            // Layer 0 == ordinary application windows (matches the old
+            // `windowLayer == 0` guard; filters out menu bar, Dock, overlays).
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+            // On-screen guard (the option already filters, but be explicit).
+            let onScreen = (info[kCGWindowIsOnscreen as String] as? Bool) ?? true
+            guard onScreen else { continue }
+
+            // Bounds → CGRect (CGWindowListCopyWindowInfo gives a bounds dict).
+            guard let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
+                  let frame = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else { continue }
+            guard frame.width > 1, frame.height > 1 else { continue }
+
+            guard let windowNumber = info[kCGWindowNumber as String] as? Int else { continue }
+
+            // App name + bundle id from the owner PID.
+            let appName = (info[kCGWindowOwnerName as String] as? String) ?? ""
+            let ownerPID = (info[kCGWindowOwnerPID as String] as? pid_t)
+            let bundleID = ownerPID.flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
             guard filter.shouldMonitor(appName: appName) else { continue }
 
             let meta = MonitoredWindow(
-                windowID: window.windowID,
+                windowID: UInt32(windowNumber),
                 appName: appName,
                 bundleID: bundleID,
-                frame: window.frame
+                frame: frame
             )
 
-            guard let cgImage = Self.captureWindowImage(windowID: window.windowID) else {
+            guard let cgImage = Self.captureWindowImage(windowID: meta.windowID) else {
                 FileHandle.standardError.write(Data(
                     "capture skip: window=\(meta.windowID) app=\(meta.appName) reason=null-cgimage\n".utf8
                 ))
