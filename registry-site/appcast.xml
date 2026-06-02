@@ -5,18 +5,17 @@
         <description>ValueGuard app updates</description>
         <language>en</language>
         <item>
-            <title>0.3.2</title>
+            <title>0.3.3</title>
             <description><![CDATA[
                 <ul>
-                  <li><b>Calibration now works for explicit-content categories</b> — calibrates against the category's captions on-device when no positive sample images are available, instead of failing.</li>
-                  <li><b>Fixed:</b> Applying a calibrated threshold no longer re-prompts for Screen Recording when it's already granted.</li>
+                  <li><b>Fixed:</b> ValueGuard no longer re-asks for Screen Recording permission every time you Apply a setting when it's already granted.</li>
                 </ul>
             ]]></description>
-            <pubDate>Mon, 01 Jun 2026 14:45:00 -0700</pubDate>
-            <sparkle:version>5</sparkle:version>
-            <sparkle:shortVersionString>0.3.2</sparkle:shortVersionString>
+            <pubDate>Mon, 01 Jun 2026 15:05:00 -0700</pubDate>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>0.3.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/Sincera-Works/valueguard/releases/download/app-v0.3.2/ValueGuard.dmg" length="93040931" type="application/octet-stream" sparkle:edSignature="CHkAUZ/21vpnu4KLd2NhiJVWGuSXRKb4TBii/UgSRpUcjZjcpAe9ujtjRg3brWJT/+byxrMhXAfxF1pG9LYjCg=="/>
+            <enclosure url="https://github.com/Sincera-Works/valueguard/releases/download/app-v0.3.3/ValueGuard.dmg" length="93040820" type="application/octet-stream" sparkle:edSignature="9KXA+PFrFlaOHz0GPVt8idtrX+4ZU6RyeJt0iMjHE9YPbgl7VZBxrqmBnzAHv+C9pkcinK4WCWudouKiawVbBw=="/>
         </item>
     </channel>
 </rss>
