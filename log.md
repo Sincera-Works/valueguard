@@ -30,12 +30,13 @@ shipping**.
 - Released `app-v0.3.3` (build 6, notarized; appcast #30, deployed). Live chain
   verified (feed=0.3.3, DMG 93040820 B).
 
-**Still unverified:** the Sparkle auto-UPDATER end-to-end. The 0.3.0→0.3.2 attempt
-failed ("Update Error") — likely the quarantined-bundle install under hardened
-runtime and/or a 0.3.0 first-cut Sparkle bug. A clean build was hand-installed to
-recover. Whether a clean install can auto-update to a newer version is STILL not
-proven; 0.3.2→0.3.3 (or 0.3.3→next) is the test. If it fails the same way, the
-Sparkle install/relaunch integration has a real bug.
+**Auto-updater VERIFIED end-to-end (2026-06-01).** A clean-installed 0.3.2
+auto-updated to 0.3.3: checked the feed, downloaded, verified the EdDSA
+signature, installed, and relaunched — `/Applications/ValueGuard.app` is now
+0.3.3. This was the last unproven piece (the earlier 0.3.0→0.3.2 "Update Error"
+was the quarantined first-cut 0.3.0 build, NOT a feed/package problem — clean
+builds update fine). The full Sparkle path (feed → download → signature →
+install → relaunch) is now confirmed working.
 
 Recurring infra lesson: `git reset --hard origin/main` to re-sync local main has
 twice wiped uncommitted working-tree fixes (the notary creds and this permission
