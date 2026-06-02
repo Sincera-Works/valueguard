@@ -3,6 +3,44 @@
 State-changing actions (build changes, signing swaps, policy revisions, model
 upgrades). Newest first.
 
+## 2026-06-01 — 0.3.3: real fix for the Screen Recording re-prompt (released)
+
+The 0.3.2 permission fix was incomplete and shipped on unvalidated logic (it was
+wrong). 0.3.3 is the complete fix, **verified live on a signed build before
+shipping**.
+
+- **Root cause:** `ScreenCapture.captureMonitoredWindows()` called
+  `SCShareableContent.current` on every capture tick; on **macOS 26** that API
+  raises the Screen Recording prompt on *every* call even when access is granted.
+  Apply restarts the daemon → capture loop reruns it → prompt, despite the
+  permission toggle being ON. 0.3.2 only guarded `requestPermission()`, missing
+  this call site.
+- **Fix:** enumerate windows via `CGWindowListCopyWindowInfo` (returns the exact
+  metadata used — owner name, bundle id via PID, bounds, layer, on-screen,
+  window id — with NO prompt). Pixel grab still uses `CGWindowListCreateImage`
+  (needs the grant, doesn't prompt). `requestPermission()` is now a silent
+  `CGPreflightScreenCaptureAccess()` preflight only. ScreenCaptureKit import
+  removed entirely.
+- **Validation method (the lesson):** screen-permission behavior CANNOT be tested
+  on ad-hoc/dev builds — TCC keys on the notarized cdhash, so ungranted builds
+  always prompt regardless of the fix. Proven instead by (1) a standalone
+  `CGWindowListCopyWindowInfo` probe → full metadata, no prompt; (2) a
+  Developer-ID-signed build installed over /Applications → Brad confirmed
+  repeated Apply no longer prompts. Only then committed.
+- Released `app-v0.3.3` (build 6, notarized; appcast #30, deployed). Live chain
+  verified (feed=0.3.3, DMG 93040820 B).
+
+**Still unverified:** the Sparkle auto-UPDATER end-to-end. The 0.3.0→0.3.2 attempt
+failed ("Update Error") — likely the quarantined-bundle install under hardened
+runtime and/or a 0.3.0 first-cut Sparkle bug. A clean build was hand-installed to
+recover. Whether a clean install can auto-update to a newer version is STILL not
+proven; 0.3.2→0.3.3 (or 0.3.3→next) is the test. If it fails the same way, the
+Sparkle install/relaunch integration has a real bug.
+
+Recurring infra lesson: `git reset --hard origin/main` to re-sync local main has
+twice wiped uncommitted working-tree fixes (the notary creds and this permission
+fix). Commit before resetting.
+
 ## 2026-06-01 — 0.3.2: caption-anchored calibration + Screen Recording prompt fix (released)
 
 Two fixes (PR #26), released as `app-v0.3.2` (build 5, notarized; appcast #27).
