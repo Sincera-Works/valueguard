@@ -10,3 +10,7 @@ numpy==1.26.4
 # For embed_captions.py — only needs the text tower
 sentencepiece==0.2.0
 protobuf==5.29.1
+
+# For export_onnx.py / test_onnx_parity.py — the Windows-port model path
+onnx==1.21.0
+onnxruntime==1.26.0
