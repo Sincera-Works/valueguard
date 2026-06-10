@@ -39,7 +39,7 @@ Windows deployment facts learned in P1b:
 | Audit log | append-only NDJSON | identical format (see below) |
 | Autostart | LaunchAgent plist | HKCU `Run` key |
 | Data dir | `~/Library/Application Support/ValueGuard/` | `%LOCALAPPDATA%\ValueGuard\` |
-| Model cache | `~/Library/Caches/ValueGuard/` | `%LOCALAPPDATA%\ValueGuard\cache\` |
+| Model cache | `~/Library/Caches/ValueGuard/` | `%LOCALAPPDATA%\ValueGuard\cache\` (native daemon only — daemon-py loads the .onnx directly from `models\`, no compile cache) |
 
 Policy compilation needs nothing new: the paste-bridge app path is
 model-agnostic, and `embed_captions.py` already has a PyTorch fallback that
