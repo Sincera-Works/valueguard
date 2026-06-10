@@ -1,0 +1,39 @@
+# ValueGuard daemon — per-user systemd unit (Linux).
+#
+# Assumes the deployment layout this file is shipped with:
+#   ~/valueguard/daemon-py/            this directory (checkout or copy)
+#   ~/valueguard/daemon-py/.venv/      python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+#   ~/valueguard/models/SigLIP2Vision.fp32.onnx   built by model-conversion/export_onnx.py
+#   policy.bin at the default path (~/.local/share/ValueGuard/policy.bin)
+# Adjust paths below if your layout differs.
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp valueguard.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now valueguard
+#
+# Runs in the user session (never a system service — it must see the user's
+# display). DISPLAY/XAUTHORITY must match the session's X server; on a
+# desktop login they're usually in the systemd user environment already
+# (`systemctl --user show-environment`), otherwise import them:
+#   systemctl --user import-environment DISPLAY XAUTHORITY
+
+[Unit]
+Description=ValueGuard on-device content filter (log-only)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+# Type=exec (systemd >= 240): like simple, but fails the unit if the
+# executable can't be spawned at all.
+Type=exec
+# WorkingDirectory makes `-m valueguard_daemon` importable — the package is
+# run from the source tree, not pip-installed.
+WorkingDirectory=%h/valueguard/daemon-py
+ExecStart=%h/valueguard/daemon-py/.venv/bin/python -m valueguard_daemon --model %h/valueguard/models/SigLIP2Vision.fp32.onnx
+Restart=on-failure
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=graphical-session.target

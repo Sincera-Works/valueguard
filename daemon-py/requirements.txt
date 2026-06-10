@@ -1,0 +1,8 @@
+# Pinned for reproducibility. Linux (omen) + Windows; Python 3.12.
+numpy==2.2.6
+onnxruntime==1.26.0
+mss==10.0.0
+pillow==11.0.0
+
+# Tests
+pytest==8.3.4
