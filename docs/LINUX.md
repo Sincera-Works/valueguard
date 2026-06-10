@@ -46,6 +46,14 @@ inference entirely on static frames (hamming < 4 on the 9×8 dHash, exactly
 the macOS gate). CUDA on the RTX 2060 SUPER is an optional perf tier, never
 a correctness dependency.
 
+Smoke-measured end-to-end (Xvfb 1920×1080, real calibrated policy, hash
+gate off = worst case): tick p50 = 103 ms, p95 = 140 ms over 65 frames; with
+the gate on, a static screen costs 1 inference per content change and ticks
+drop to ~29 ms. **Max RSS ≈ 498 MB with the fp32 model** — well above the
+macOS daemon's <200 MB INT8 budget; switching the deployment to the fp16
+artifact roughly halves it, and the INT8 calibration pass (P2) is the real
+fix. Tracked as a P2 acceptance criterion, not a P1a blocker.
+
 ## Verification gates (P1a)
 
 1. Unit suite (`daemon-py/tests/`) — VGP1 round-trip + error taxonomy,
