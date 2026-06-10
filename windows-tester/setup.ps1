@@ -80,7 +80,11 @@ Copy-Item -Recurse -Force (Join-Path $Here "daemon-py\*") $AppDir
 if (-not (Test-Path (Join-Path $AppDir ".venv"))) {
     & $Py -m venv (Join-Path $AppDir ".venv")
 }
-& (Join-Path $AppDir ".venv\Scripts\python.exe") -m pip install -q -r (Join-Path $AppDir "requirements.txt")
+# --require-hashes: every dependency wheel is SHA-256-pinned in
+# requirements-windows.lock (generated on the target cp312/win_amd64 platform),
+# so the PyPI fetch is part of the verified trust chain like the model and
+# installers. --only-binary keeps us on the hashed wheels.
+& (Join-Path $AppDir ".venv\Scripts\python.exe") -m pip install -q --require-hashes --only-binary :all: -r (Join-Path $AppDir "requirements-windows.lock")
 
 # --- Model ----------------------------------------------------------------
 $modelValid = (Test-Path $ModelPath) -and ((Get-FileHash -Algorithm SHA256 $ModelPath).Hash.ToLower() -eq $Hashes.model)
