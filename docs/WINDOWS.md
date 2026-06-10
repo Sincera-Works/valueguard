@@ -5,9 +5,27 @@ Design for the Windows port (issue #34). The product property is unchanged:
 everything platform-specific; the VGP1 policy format and the policy-compiler
 flow are shared with macOS and documented elsewhere.
 
-Status: **P0 (model portability) implemented; P1/P2 not started.** Nothing in
-this document describes shipped Windows behavior until the phase that owns it
-lands and is verified on real Windows hardware.
+Status: **P0 (model portability) merged; P1b (the cross-platform `daemon-py`
+running on Windows) verified 2026-06-09** on a Windows 11 Enterprise Eval VM
+(KVM on omen, 6 vCPU): all 35 unit tests + the golden-vector test pass, and
+the live smoke in a real interactive desktop session (GDI capture) measured
+65 frames gate-off at tick p50 = 219 ms / p95 = 641 ms (< 1000 ms gate) and
+gate-on static-screen at 1 inference per 10 ticks — the daemon ran
+**unmodified** from the Linux-verified code. The native C#/WGC daemon below
+remains the unbuilt optimization path; P2 (packaging/calibration/INT8) is
+not started.
+
+Windows deployment facts learned in P1b:
+
+- **onnxruntime needs the VC++ 2015–2022 redistributable** — fresh Windows
+  lacks it and the import fails with `DLL load failed` (install
+  `vc_redist.x64.exe` from `aka.ms/vs/17/release/vc_redist.x64.exe`).
+- GDI capture is per-session: anything launched from an SSH session sees no
+  desktop. Run the daemon in the interactive session — for remote testing,
+  a scheduled task created with `/it` and `schtasks /run`; for real use, the
+  HKCU `Run` autostart already specified below.
+- `schtasks /tr` caps the command at 261 chars — wrap the daemon invocation
+  in a `.cmd` file.
 
 ## Component mapping
 
